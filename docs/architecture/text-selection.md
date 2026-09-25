@@ -40,6 +40,11 @@ The subsystem consists of three primary components:
 
 Every retrieval request (mouse-up drag, ⌘A/⇧+arrow gesture, or the ⌥⌘C hotkey) runs through `SelectionRetrievalCoordinator.retrieve(for:policy:cursor:)`:
 
+> **Inaccurate (fork note):** the palette hotkey does not start a retrieval. It reuses the passive
+> monitor's cached selection, or falls back to the clipboard — see *Shortcut Clipboard Fallback*
+> below. This document still describes upstream behavior and will be rewritten when the fork's
+> hotkey-driven retrieval lands.
+
 1. **Fresh AX snapshot** — `AXElementInspector.inspect()` resolves the focused application, then the focused UI element *from that application*, never from the system-wide element (the classic source of stale reads). It collects the role, parent/container roles, selection attributes, and selection bounds. The blocking snapshot runs on the dedicated `com.openclip.ax-inspect` queue, raced against `Constants.axReadTimeout` (0.5 s) via a once-resume gate; a hung or unresponsive target yields `nil` instead of stalling the popup.
 2. **Gate** — [`SelectionGatePolicy`](../../Sources/Core/Rules/SelectionGatePolicy.swift) decides whether to attempt retrieval at all:
    - `skipRoles` — AX roles that can never hold a text selection (buttons, menus, scrollbars, …) are rejected up front.
@@ -122,6 +127,9 @@ The retrieval path above applies to *passive selection monitoring*. The global t
 1. **Monitored Selection Reuse**: The hotkey checks `selectionMonitor.synchronousSelection(for: frontmostBundleID)`. If the user recently selected text in the active application and that selection has not expired (`Constants.selectionMaxAge` = 30 s) or been cleared by caret navigation / typing, the monitored selection is reused immediately.
 2. **Clipboard Fallback**: If no valid monitored selection exists, OpenClip falls back to the current contents of `NSPasteboard.general` so the search palette still has input to act on.
    - The context is flagged `SelectionContext.isClipboardFallback`; `PopupWindowController.show` filters available actions down to **Paste** (and AI Tools launcher).
+     > **Inaccurate (fork note):** only actions whose `ActionChrome.requiresLiveSelection` is true
+     > (Copy, Cut) are removed, in `ActionRegistry` — every other action still runs on the
+     > clipboard text.
 3. **Empty Context Fallback**: If the clipboard is also empty, an empty selection context is created with the frontmost app's identity, allowing standalone actions to run.
 
 Passive selection monitoring continues even when "Appear Automatically" is disabled (`isAppEnabled == false` or `hotkeyOnly: true`), updating `latestSelection` and pre-warming the search index in the background so pressing the shortcut opens the palette with zero perceptual delay. `isAppEnabled` is the global form of the per-app `hotkeyOnly` rule: it gates only the monitor's passive (mouse-release/keyboard) auto-show. The explicit hold gesture delivers straight from `handleMouseDown` and stays unaffected.

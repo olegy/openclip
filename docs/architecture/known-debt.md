@@ -427,6 +427,13 @@ areas; stale debt notes are worse than none.
   rather than writing the real preferences domain, and `SecretActionOptionStoreTests` redirects to a
   temporary file (`SecretStore.setFileURLForTesting`),
   eliminating live system pasteboard/keychain mutation during test runs.
+- **Known failures (baseline 2026-09-26, Xcode 27 / macOS 27, 1326 tests):**
+  - `ActionCoordinatorTests.testActionCoordinatorResolvesActionsForContext` passes alone but fails
+    in the full run, so the suite is not fully order-independent yet (leaked shared state).
+  - `MacSelectionMonitorTests.testOverlayWithholdsCopyRetrievalButKeepsMonitoring` fails
+    consistently here (the ungated monitor caches nothing); it passes on upstream CI (Xcode 26.6).
+  - Upstream CI is red for other reasons: `testScriptActionOutputWrittenAfterParentExitIsCaptured`
+    and `AIProviderTests.testAIServiceManagerProviderTypes`.
 - **Removed slow/flaky/environment-dependent tests:** the Apple Intelligence live-model test
   (`testAppleIntelligenceMatchesPresetPrompts`) made
   real on-device `LanguageModelSession` calls; `DebugLogEndToEndTests` polled `OSLogStore`
