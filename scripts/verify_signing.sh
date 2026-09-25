@@ -113,7 +113,11 @@ if [ "$IS_APP" -eq 1 ]; then
     # 2. Hardened runtime on the app itself. This is the "Hardening: Not enabled"
     #    row in Apparency, and the reason notarization used to be impossible.
     # -----------------------------------------------------------------------
-    if grep -qE "^CodeDirectory .*flags=.*runtime" <<<"$REPORT"; then
+    if [ "$IS_ADHOC" -eq 1 ]; then
+        # sign_artifact.sh leaves ad-hoc builds unhardened: library validation would refuse the
+        # ad-hoc Core.framework and the app would abort at launch.
+        echo "  · hardened runtime not checked (ad-hoc build is signed without it)"
+    elif grep -qE "^CodeDirectory .*flags=.*runtime" <<<"$REPORT"; then
         pass "hardened runtime enabled"
     else
         fail "hardened runtime flag missing — notarization will be refused"
@@ -181,7 +185,7 @@ PY
         NESTED_REPORT="$(signature_report "$item")"
         REL="${item#"$TARGET"/}"
 
-        if oc_item_has_code "$item" && ! grep -qE "^CodeDirectory .*flags=.*runtime" <<<"$NESTED_REPORT"; then
+        if [ "$IS_ADHOC" -eq 0 ] && oc_item_has_code "$item" && ! grep -qE "^CodeDirectory .*flags=.*runtime" <<<"$NESTED_REPORT"; then
             fail "$REL is not signed with the hardened runtime"
             NESTED_BAD=$((NESTED_BAD + 1))
         fi
@@ -205,6 +209,8 @@ PY
 
     if [ "$NESTED_TOTAL" -eq 0 ]; then
         fail "found no nested code under $LABEL — wrong path?"
+    elif [ "$NESTED_BAD" -eq 0 ] && [ "$IS_ADHOC" -eq 1 ]; then
+        pass "all $NESTED_TOTAL nested binaries consistently signed"
     elif [ "$NESTED_BAD" -eq 0 ]; then
         pass "all $NESTED_TOTAL nested binaries hardened and consistently signed"
     fi
@@ -298,7 +304,7 @@ fi
 # The hardened runtime and entitlements are properties of the app; a disk image only carries a
 # signature, so its summary must not claim more than was checked.
 if [ "$IS_ADHOC" -eq 1 ] && [ "$IS_APP" -eq 1 ]; then
-    echo "==> $LABEL is a valid ad-hoc build (hardened, entitlements as declared) — not distributable."
+    echo "==> $LABEL is a valid ad-hoc build (entitlements as declared, no hardened runtime) — not distributable."
 elif [ "$IS_ADHOC" -eq 1 ]; then
     echo "==> $LABEL is ad-hoc signed — not distributable."
 else

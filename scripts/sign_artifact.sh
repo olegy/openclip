@@ -13,9 +13,10 @@
 # Usage:
 #   ./scripts/sign_artifact.sh <path-to-OpenClip.app|path-to.dmg> [--identity <name>]
 #
-# With no identity configured the artifact is signed ad-hoc, with the hardened runtime and the
-# entitlements still applied, so unsigned local builds match release builds everywhere except the
-# certificate. See scripts/signing_config.sh for the configuration precedence.
+# With no identity configured the artifact is signed ad-hoc, with the entitlements still applied
+# but without the hardened runtime: its library validation rejects ad-hoc nested frameworks
+# ("different Team IDs"), so a hardened ad-hoc app dies in dyld at launch. See
+# scripts/signing_config.sh for the configuration precedence.
 
 set -euo pipefail
 
@@ -66,8 +67,12 @@ TEAM_ID="$(oc_team_from_identity "$IDENTITY")"
 # the notary service rejects submissions without one. The ad-hoc pseudo-identity has no
 # certificate to timestamp against, so asking for one there just fails the build.
 TIMESTAMP_FLAG="--timestamp"
+RUNTIME_FLAG="--options=runtime"
 if oc_is_adhoc "$IDENTITY"; then
     TIMESTAMP_FLAG="--timestamp=none"
+    # Library validation under the hardened runtime requires nested code to share the app's
+    # Team ID; ad-hoc code has none, so dyld refuses Core.framework and the app aborts at launch.
+    RUNTIME_FLAG=""
     echo "==> Signing ad-hoc (no Developer ID configured; not distributable)"
 else
     echo "==> Signing with: $IDENTITY"
@@ -80,7 +85,7 @@ sign_one() {
     codesign \
         --force \
         --sign "$IDENTITY" \
-        --options runtime \
+        ${RUNTIME_FLAG:+"$RUNTIME_FLAG"} \
         "$TIMESTAMP_FLAG" \
         "$@" \
         "$path"

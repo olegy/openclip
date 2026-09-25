@@ -18,15 +18,20 @@ Signing is **opt-in**, and everything works without it.
 |---|---|---|
 | Apple Developer account | not needed | required |
 | Network access | not needed | required (timestamp + notary) |
-| Hardened runtime | yes | yes |
+| Hardened runtime | no (see below) | yes |
 | Entitlements | yes | yes |
 | Opens on another Mac | no | yes |
 | Used for | local builds, tests, PR/fork CI | releases |
 
 A fresh clone builds, packages, and runs with no certificate at all. The only thing an ad-hoc build
 cannot do is leave the machine that produced it: Gatekeeper has nothing to trust, so it refuses to
-launch. Everything else — the hardened runtime, the entitlements, the inside-out signing order — is
-identical in both modes, so a contributor is exercising the same code path a release does.
+launch. The entitlements and the inside-out signing order are identical in both modes.
+
+The hardened runtime is the exception. Its library validation only loads nested code signed by the
+same Team ID, and ad-hoc code has none, so a hardened ad-hoc app is killed by dyld at launch
+(`Library not loaded: @rpath/Core.framework … different Team IDs`). `sign_artifact.sh` therefore
+omits `--options runtime` for ad-hoc signing, and `verify_signing.sh` only requires it for
+certificate-signed builds.
 
 ```bash
 ./scripts/package_app.sh                                # ad-hoc
@@ -240,8 +245,8 @@ gh attestation verify OpenClip-v1.4.0.dmg --repo ganeshmshetty/openclip \
 choice rather than a limitation: pull requests from forks get no access to secrets, so a signing
 certificate there would only ever work for collaborator branches, and a check that silently does
 nothing for outside contributors is worse than one that behaves identically for everyone. An
-ad-hoc build still exercises the entire signing path — hardened runtime, real entitlements, and the
-inside-out pass over Sparkle's nested helpers — and a dedicated step verifies the app unpacked from
+ad-hoc build still exercises the signing path — real entitlements and the inside-out pass over
+Sparkle's nested helpers (the hardened runtime is left off; see above) — and a dedicated step verifies the app unpacked from
 the archive, so the hardening regression that shipped unnoticed for months cannot recur.
 
 `.github/workflows/release.yml` signs, notarizes, and staples when the secrets below are present.
