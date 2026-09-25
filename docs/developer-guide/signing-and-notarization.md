@@ -30,8 +30,23 @@ launch. The entitlements and the inside-out signing order are identical in both 
 The hardened runtime is the exception. Its library validation only loads nested code signed by the
 same Team ID, and ad-hoc code has none, so a hardened ad-hoc app is killed by dyld at launch
 (`Library not loaded: @rpath/Core.framework … different Team IDs`). `sign_artifact.sh` therefore
-omits `--options runtime` for ad-hoc signing, and `verify_signing.sh` only requires it for
-certificate-signed builds.
+omits `--options runtime` (and the secure timestamp) for any identity without a Team ID, and
+`verify_signing.sh` only requires the hardened runtime when the signature carries one.
+
+### Local self-signed certificate
+
+An ad-hoc build's designated requirement is its cdhash, so every rebuild looks like a new app to
+TCC and the Accessibility grant is lost. A self-signed certificate fixes that without an Apple
+Developer account: the requirement becomes bundle id plus certificate, which rebuilds keep.
+
+1. Keychain Access → Certificate Assistant → Create a Certificate…: identity type
+   *Self Signed Root*, certificate type *Code Signing* (e.g. named `OpenClip Local Signing`).
+2. `keys/signing.env`: `OPENCLIP_SIGN_IDENTITY="OpenClip Local Signing"`.
+3. `package_app.sh` and `dev_run.sh` both sign with it; the first run asks for keychain access
+   (choose *Always Allow*).
+
+It has no Team ID, so it is signed like ad-hoc (no hardened runtime, no timestamp) and is just as
+undistributable. When the certificate expires, create a new one and grant Accessibility once more.
 
 ```bash
 ./scripts/package_app.sh                                # ad-hoc

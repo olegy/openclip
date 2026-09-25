@@ -26,6 +26,22 @@ if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
   exit 1
 fi
 
+# Re-sign with the configured identity (OPENCLIP_SIGN_IDENTITY or keys/signing.env). With a local
+# self-signed certificate the designated requirement no longer changes with every build, so the
+# Accessibility grant survives rebuilds. Without one the build stays ad-hoc, as Xcode left it.
+OC_PROJECT_DIR="$PROJECT_DIR"
+# shellcheck source=scripts/signing_config.sh
+. "$PROJECT_DIR/scripts/signing_config.sh"
+oc_load_signing_env
+SIGN_IDENTITY="$(oc_resolve_identity "")"
+if ! oc_is_adhoc "$SIGN_IDENTITY"; then
+  if ! SIGN_LOG="$("$PROJECT_DIR/scripts/sign_artifact.sh" "$APP_PATH" 2>&1)"; then
+    echo "$SIGN_LOG" >&2
+    exit 1
+  fi
+  echo "Signed with: $SIGN_IDENTITY"
+fi
+
 echo "Terminating old instances & launching from DerivedData..."
 pkill -f OpenClip || true
 sleep 0.3

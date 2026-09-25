@@ -30,8 +30,8 @@ oc_load_signing_env
 IDENTITY="$(oc_resolve_identity "")"
 NOTARIZE="${OPENCLIP_NOTARIZE:-0}"
 
-if [ "$NOTARIZE" = "1" ] && oc_is_adhoc "$IDENTITY"; then
-    echo "error: OPENCLIP_NOTARIZE=1 needs a Developer ID identity; Apple will not notarize an ad-hoc build." >&2
+if [ "$NOTARIZE" = "1" ] && [ -z "$(oc_team_from_identity "$IDENTITY")" ]; then
+    echo "error: OPENCLIP_NOTARIZE=1 needs a Developer ID identity; Apple will not notarize an ad-hoc or self-signed build." >&2
     echo "       Set OPENCLIP_SIGN_IDENTITY (see scripts/signing_config.sh)." >&2
     exit 1
 fi
@@ -58,11 +58,13 @@ fi
 # before it can reach a tag.
 "$PROJECT_DIR/scripts/verify_universal.sh" "$BUILT_APP" "OpenClip.app"
 
-# How far the signature has to go depends on what was configured. An ad-hoc build still has to
-# be hardened and carry exactly the declared entitlements; a Developer ID build additionally
-# needs a real certificate, a secure timestamp, and one team across every nested binary.
+# How far the signature has to go depends on what was configured. An ad-hoc or local self-signed
+# build (no Team ID) has to carry exactly the declared entitlements; a Developer ID build
+# additionally needs the hardened runtime, a real certificate, a secure timestamp, and one team
+# across every nested binary.
+TEAM_ID="$(oc_team_from_identity "$IDENTITY")"
 REQUIRE="any"
-oc_is_adhoc "$IDENTITY" || REQUIRE="developer-id"
+[ -n "$TEAM_ID" ] && REQUIRE="developer-id"
 
 if [ "$NOTARIZE" = "1" ]; then
     "$PROJECT_DIR/scripts/verify_signing.sh" "$BUILT_APP" --require "$REQUIRE"
@@ -94,8 +96,9 @@ fi
 echo "Release packages created:"
 echo "  ZIP: $OUTPUT_ZIP"
 echo "  DMG: $OUTPUT_DMG"
-if oc_is_adhoc "$IDENTITY"; then
+if [ -z "$TEAM_ID" ]; then
     echo ""
-    echo "note: this build is ad-hoc signed. Gatekeeper will refuse it on any other Mac."
-    echo "      Set OPENCLIP_SIGN_IDENTITY to build something distributable."
+    echo "note: this build has no Developer ID (ad-hoc or local certificate). Gatekeeper will"
+    echo "      refuse it on any other Mac. Set OPENCLIP_SIGN_IDENTITY to a Developer ID identity"
+    echo "      to build something distributable."
 fi
