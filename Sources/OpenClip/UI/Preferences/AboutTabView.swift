@@ -24,7 +24,9 @@ struct AboutTab: View {
                 // Identity block
                 identityBlock
 
-                // Software updates
+                // Software updates, hidden when the build ships no update feed. The block is left
+                // un-indented on purpose so upstream edits to it still merge cleanly.
+                if AppUpdateManager.isEnabled {
                 SettingsCard("Software Updates") {
                     if let newVersion = updateManager.availableUpdateVersion {
                         updateAvailableRow(version: newVersion)
@@ -91,6 +93,7 @@ struct AboutTab: View {
                             .help("Check Now")
                         }
                     }
+                }
                 }
 
                 // Links

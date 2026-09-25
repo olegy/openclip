@@ -20,6 +20,21 @@ final class AppUpdateManagerTests: XCTestCase {
         super.tearDown()
     }
 
+    /// Fork guard: the build must not carry upstream's appcast or signing key, otherwise Sparkle
+    /// would replace this build with an upstream release.
+    func testBuildShipsNoUpdateFeedAndHidesUpdateUI() {
+        XCTAssertNil(Bundle.main.object(forInfoDictionaryKey: "SUFeedURL"))
+        XCTAssertNil(Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey"))
+        XCTAssertFalse(AppUpdateManager.isEnabled)
+        XCTAssertFalse(AppUpdateManager.shared.canCheckForUpdates)
+        XCTAssertNil(AppUpdateManager.shared.lastUpdateCheckDate)
+
+        let store = MemorySettingsStore()
+        store.set(.showMenuBarIcon, value: true)
+        let controller = StatusBarController(settingsStore: store)
+        XCTAssertEqual(controller.updateMenuItem?.isHidden, true)
+    }
+
     func testAvailableUpdateVersionPublishing() {
         let manager = AppUpdateManager.shared
         XCTAssertNil(manager.availableUpdateVersion)

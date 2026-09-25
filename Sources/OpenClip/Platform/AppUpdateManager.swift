@@ -22,9 +22,16 @@ public final class AppUpdateManager: NSObject, ObservableObject, SPUUpdaterDeleg
 
     public static let updateNotificationCategory = "OPENCLIP_UPDATE_CATEGORY"
 
+    /// Whether this build ships an update feed. The fork's Info.plist has no `SUFeedURL`, so Sparkle
+    /// is never created: no network check, no background schedule, and the update UI is hidden.
+    public static var isEnabled: Bool {
+        guard let feed = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String else { return false }
+        return !feed.isEmpty
+    }
+
     /// Sparkle's standard controller; `startingUpdater: true` enables the background schedule
-    /// configured via `SUScheduledCheckInterval` in Info.plist.
-    private var controller: SPUStandardUpdaterController!
+    /// configured via `SUScheduledCheckInterval` in Info.plist. Nil when updates are disabled.
+    private var controller: SPUStandardUpdaterController?
 
     /// Set when a newer version has been detected, nil when up to date.
     @Published public private(set) var availableUpdateVersion: String?
@@ -92,11 +99,17 @@ public final class AppUpdateManager: NSObject, ObservableObject, SPUUpdaterDeleg
 
         super.init()
 
-        controller = SPUStandardUpdaterController(
+        guard Self.isEnabled else {
+            Log.updates.info("Updates disabled: no SUFeedURL in this build")
+            return
+        }
+
+        let controller = SPUStandardUpdaterController(
             startingUpdater: autoCheck,
             updaterDelegate: self,
             userDriverDelegate: nil
         )
+        self.controller = controller
         controller.updater.automaticallyChecksForUpdates = autoCheck
         controller.updater.automaticallyDownloadsUpdates = autoDownload
 
@@ -114,7 +127,7 @@ public final class AppUpdateManager: NSObject, ObservableObject, SPUUpdaterDeleg
             Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 guard let self, self.automaticallyChecksForUpdates else { return }
-                self.controller.updater.checkForUpdatesInBackground()
+                self.controller?.updater.checkForUpdatesInBackground()
             }
         }
     }
@@ -151,7 +164,7 @@ public final class AppUpdateManager: NSObject, ObservableObject, SPUUpdaterDeleg
 
     /// Triggers an interactive update check (shows the Sparkle UI).
     public func checkForUpdates() {
-        controller.checkForUpdates(nil)
+        controller?.checkForUpdates(nil)
     }
 
     /// Installs the update immediately and relaunches the app.
@@ -159,7 +172,7 @@ public final class AppUpdateManager: NSObject, ObservableObject, SPUUpdaterDeleg
         if let block = immediateInstallationBlock {
             block()
         } else {
-            controller.checkForUpdates(nil)
+            controller?.checkForUpdates(nil)
         }
     }
 
@@ -171,7 +184,7 @@ public final class AppUpdateManager: NSObject, ObservableObject, SPUUpdaterDeleg
 
     /// Returns the date of the last successful update check, if any.
     public var lastUpdateCheckDate: Date? {
-        controller.updater.lastUpdateCheckDate
+        controller?.updater.lastUpdateCheckDate
     }
 
     public func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {

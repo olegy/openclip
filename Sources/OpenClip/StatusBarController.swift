@@ -178,6 +178,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
 
         // Section 3: Updates & Support
         let updateItem = menuItem(title: String(localized: "Check for Updates…"), action: #selector(checkForUpdates))
+        updateItem.isHidden = !AppUpdateManager.isEnabled
         menu.addItem(updateItem)
         self.updateMenuItem = updateItem
         updateUpdateMenuItem(version: AppUpdateManager.shared.availableUpdateVersion)

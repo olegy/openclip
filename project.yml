@@ -32,11 +32,11 @@ targets:
         LSUIElement: true
         NSHumanReadableCopyright: "Copyright © 2026 Ganesh M and OpenClip Contributors. AGPL-3.0 licensed."
         NSAppleEventsUsageDescription: "OpenClip needs to control other apps to run your AppleScript actions and to paste results back into the app you were using."
-        SUFeedURL: https://github.com/ganeshmshetty/openclip/releases/latest/download/appcast.xml
-        SUPublicEDKey: JbyKx5LUkYkM+ovsJ1NPDR2W+1ptfdsu6b51KBsKhWo=
+        # Fork: no SUFeedURL / SUPublicEDKey. Upstream's feed and key would let this build replace
+        # itself with an upstream release; without a feed AppUpdateManager never starts Sparkle.
         SUScheduledCheckInterval: 86400
-        SUEnableAutomaticChecks: true
-        SUAutomaticallyUpdate: true
+        SUEnableAutomaticChecks: false
+        SUAutomaticallyUpdate: false
         CFBundleLocalizations:
           - en
           - zh-Hans
@@ -46,7 +46,12 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        MARKETING_VERSION: "1.6.2"
+        # Fork: upstream's version plus semver build metadata, e.g. 1.6.2+mod.1. Xcode takes
+        # CFBundleShortVersionString from MARKETING_VERSION itself (the INFOPLIST_KEY_ line below
+        # has no effect), so the suffix has to live here. SemanticVersion ignores it, so extension
+        # minOpenClipVersion checks still compare against upstream's triplet.
+        OPENCLIP_MOD_REVISION: "1"
+        MARKETING_VERSION: "1.6.2+mod.$(OPENCLIP_MOD_REVISION)"
         CURRENT_PROJECT_VERSION: "15"
         INFOPLIST_KEY_CFBundleShortVersionString: $(MARKETING_VERSION)
         INFOPLIST_KEY_CFBundleVersion: $(CURRENT_PROJECT_VERSION)
