@@ -456,6 +456,8 @@ public struct PopupView: View {
                 isUserSized: modeStore.isSurfaceUserSized,
                 isPinned: modeStore.isCardPinned,
                 onExit: { onExitContent() },
+                // Fork: Close / Esc dismiss the card; only Back returns (to the palette).
+                onDismiss: ForkBehavior.spotlightPlacement ? { onDismissContent() } : nil,
                 onPaste: {
                     if let file = payload.file {
                         onCardEffect(.saveFile(file.url))

@@ -406,7 +406,7 @@ public class PopupWindowController {
         if initialMode == .search, ForkBehavior.spotlightPlacement {
             // Fork: the palette opens Spotlight-style on the mouse's screen, not at the cursor;
             // results always list below the field.
-            panel.setFrame(PopupPositioner.spotlightFrame(size: size, in: screenBounds), display: true)
+            placeSpotlight(panel, size: size, in: screenBounds)
             cardAbove = false
             modeStore.searchResultsAbove = false
         }
@@ -716,7 +716,7 @@ public class PopupWindowController {
                 panel.pinBottomEdgeOnResize = false
                 let inset = 2 * PopupMetrics.popupShadowInset
                 let panelSize = CGSize(width: cardSize.width + inset, height: cardSize.height + inset)
-                panel.setFrame(PopupPositioner.spotlightFrame(size: panelSize, in: screenBounds(for: panel)), display: true)
+                placeSpotlight(panel, size: panelSize, in: screenBounds(for: panel))
             }
             modeStore.mode = .content
             enterKeyMode()
@@ -944,6 +944,12 @@ public class PopupWindowController {
         modeStore.isCardPinned = false
         resizeAnchor = nil
         hasUserMovedCard = false
+        if ForkBehavior.spotlightPlacement, let selection = currentActionContext?.selection {
+            // Fork: there is no action bar to fall back to — Back reopens the palette on the same
+            // input (Close / Esc dismiss instead, see PopupView).
+            show(for: selection, pasteAvailable: modeStore.canPaste, initialMode: .search)
+            return
+        }
         modeStore.mode = .actions
         panel?.pinBottomEdgeOnResize = modeStore.searchResultsAbove
         panel?.heightCap = PopupMetrics.popupMaxHeight
@@ -1004,6 +1010,16 @@ public class PopupWindowController {
         let systemIsDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let isDark = PopupThemeModel.effectiveScheme(appearance: appearanceToken, systemIsDark: systemIsDark) == .dark
         targetPanel.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+    }
+
+    /// Fork: moves `panel` to its Spotlight frame. Anchoring is suspended for the move, since
+    /// `PopupPanel.setFrame` would otherwise keep the previous frame's midX and top edge — the bar
+    /// at the cursor that an AI or loading result re-shows first.
+    private func placeSpotlight(_ panel: PopupPanel, size: CGSize, in screenBounds: CGRect) {
+        let anchor = panel.horizontalAnchor
+        panel.horizontalAnchor = .none
+        panel.setFrame(PopupPositioner.spotlightFrame(size: size, in: screenBounds), display: true)
+        panel.horizontalAnchor = anchor
     }
 
     private func sanitizedPopupSize(_ raw: CGSize?) -> CGSize {

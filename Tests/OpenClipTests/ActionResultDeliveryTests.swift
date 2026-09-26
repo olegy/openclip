@@ -574,7 +574,7 @@ final class ActionResultDeliveryTests: XCTestCase {
         XCTAssertNotEqual(controller.modeStore.canPaste, false)
     }
 
-    /// Esc collapses the preview card back to the actions bar (exitContent) without hiding the popup.
+    /// Back (exitContent) leaves the preview card without hiding the popup.
     @MainActor
     func testTextPreviewEscCollapsesToBar() async throws {
         let handler = RecordingHandler()
@@ -596,12 +596,14 @@ final class ActionResultDeliveryTests: XCTestCase {
         }
         controller.exitContent()
 
+        // Fork (ForkBehavior.spotlightPlacement): there is no bar to collapse to — Back reopens
+        // the palette on the same input.
         deadline = Date().addingTimeInterval(3.0)
-        while controller.modeStore.mode != .actions && Date() < deadline {
+        while controller.modeStore.mode != .search && Date() < deadline {
             try? await Task.sleep(nanoseconds: 2_000_000)
         }
 
-        XCTAssertEqual(controller.modeStore.mode, .actions)
+        XCTAssertEqual(controller.modeStore.mode, .search)
         XCTAssertNil(controller.modeStore.resultCard)
         XCTAssertTrue(controller.isVisible, "collapsing the card never hides the popup")
     }

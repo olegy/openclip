@@ -343,6 +343,10 @@ already visible; the bar's command-glyph button enters search via `onEnterSearch
   > minimum height wins over `defaultHeight`). A result card entering content mode takes the same
   > size (`resultCardSize` + `isSurfaceUserSized`, so the remembered card size is not used) and the
   > same Spotlight frame; the loading toast centers on the palette's frame, so it lands there too.
+  > Moves go through `placeSpotlight`, which suspends `horizontalAnchor` — otherwise
+  > `PopupPanel.setFrame` keeps the previous frame's midX, and AI / loading results (re-shown as a
+  > bar at the cursor first) would open off-center. With no action bar to collapse to, the card's
+  > Back (`exitContent`) reopens the palette on the same input, and Close / Esc dismiss.
 
 ### Scoped Sub-Action Palette
 
