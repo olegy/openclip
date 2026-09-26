@@ -9,7 +9,7 @@ This repository is a personal fork of [ganeshmshetty/openclip](https://github.co
 - **Auto-updates are off.** `project.yml` ships no `SUFeedURL` / `SUPublicEDKey`, so `AppUpdateManager.isEnabled` is false, Sparkle is never started, and the update UI is hidden. Never restore upstream's feed or key: Sparkle would replace this build with an upstream release. `AppUpdateManagerTests.testBuildShipsNoUpdateFeedAndHidesUpdateUI` guards it.
 - **Version** is `MARKETING_VERSION` = upstream's version plus `+mod.$(OPENCLIP_MOD_REVISION)` (e.g. `1.6.2+mod.2`). Bump the revision for each build installed with new changes; reset it to 1 when syncing a new upstream version.
 - **Signing without a Team ID** (ad-hoc or a local self-signed certificate) leaves out the hardened runtime — see Build & test.
-- **Selection behavior is being reworked** (hotkey-driven retrieval instead of passive monitoring, no action bar). Changes are documented in `docs/` as they land; until then `docs/architecture/text-selection.md` describes upstream behavior.
+- **Nothing happens until a hotkey fires.** The palette hotkey reads the selection on demand (`HotkeyManager.resolvePaletteTrigger`), and passive selection monitoring is off (`ForkBehavior.passiveSelectionMonitoring`; `MacSelectionMonitor` is kept but never started, and its settings are hidden). `ForkBehaviorTests` guards it. The action bar is still in the code (removal pending); `docs/architecture/text-selection.md` marks where it describes upstream behavior.
 
 Keep diffs merge-friendly: change as little upstream code as possible, prefer configuration over deleting code, and don't re-indent or reformat untouched blocks.
 

@@ -87,6 +87,7 @@
 		37606174465EF5FF5CE918E3 /* Core.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 38D9A91D8E78B77B35D10754 /* Core.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		3769ABFE216DA71FC5935842 /* ActionMatchInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = C23C73042D592446C69337A8 /* ActionMatchInfo.swift */; };
 		381B3E25D7CE700224F1E649 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C2E0CE18FC287126307E67B /* SettingsStore.swift */; };
+		383971390B74D5FA755D3055 /* ForkBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91D02EEE04857740AAD1F2B5 /* ForkBehaviorTests.swift */; };
 		3856A40C6EF48A440A8AF884 /* ExtensionPackagePage.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB0FCD0F9D893D036736EA4C /* ExtensionPackagePage.swift */; };
 		386E98180E02243B9DE6B5CA /* ScriptAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F9C20B7C7D633121BA39CDA /* ScriptAction.swift */; };
 		39105B07FE3D53B6B14CCD1D /* ContextualActionClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC6744027F14EA46C455420C /* ContextualActionClassifier.swift */; };
@@ -242,6 +243,7 @@
 		94F6165DD10ED76B25170C1C /* AppFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF5D851B09CA25A4A497F0C7 /* AppFilterTests.swift */; };
 		9582FE0FF3EC9B0A9756B790 /* DefaultActionFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = E74EC58C6E636CC1388565D9 /* DefaultActionFactory.swift */; };
 		97D3FA3863ADD2F4448AED27 /* PopupModeStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8EDDA09802E7A5003EB62A0 /* PopupModeStoreTests.swift */; };
+		98376CBA28C8D6CD74E97F87 /* ForkBehavior.swift in Sources */ = {isa = PBXBuildFile; fileRef = 766DE73D93DAB331F0A0EDC0 /* ForkBehavior.swift */; };
 		9917D2C8CCBC034E3C98BFF4 /* JSNativeFetch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7726769286BF1C3870E0A003 /* JSNativeFetch.swift */; };
 		998433DC4517993AD4624ECF /* ActionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00D644F2046169A3D911104F /* ActionCoordinator.swift */; };
 		998C035B69CC6C290A1403CE /* CalendarAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D770B00EA584CD6DC259086 /* CalendarAction.swift */; };
@@ -633,6 +635,7 @@
 		750ADA88A976EEF10B2481E2 /* AppFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFilter.swift; sourceTree = "<group>"; };
 		75F48D14096F6030D7269BB3 /* SettingsHeroHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsHeroHeader.swift; sourceTree = "<group>"; };
 		760AB313675758E86CF1750B /* ActionDeletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionDeletion.swift; sourceTree = "<group>"; };
+		766DE73D93DAB331F0A0EDC0 /* ForkBehavior.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForkBehavior.swift; sourceTree = "<group>"; };
 		7683646692AA6067DA5AA86D /* ActionCustomizationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionCustomizationManager.swift; sourceTree = "<group>"; };
 		7726769286BF1C3870E0A003 /* JSNativeFetch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSNativeFetch.swift; sourceTree = "<group>"; };
 		779C30C6F007900D4BDA416F /* BrowserTabOpener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserTabOpener.swift; sourceTree = "<group>"; };
@@ -682,6 +685,7 @@
 		905AC1128EFCA584DF52AD70 /* CalculateAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalculateAction.swift; sourceTree = "<group>"; };
 		90B84517D03AB3D9A5BB0D1D /* AIServiceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIServiceManager.swift; sourceTree = "<group>"; };
 		912B67149AA68728DA1D4242 /* SettingsBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsBackend.swift; sourceTree = "<group>"; };
+		91D02EEE04857740AAD1F2B5 /* ForkBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForkBehaviorTests.swift; sourceTree = "<group>"; };
 		91FEA7E1D95D4DC5416B66A5 /* ActionCustomizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionCustomizationTests.swift; sourceTree = "<group>"; };
 		9206ED1D9BA1DDBC6B15C384 /* CustomActionManifestWriterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomActionManifestWriterTests.swift; sourceTree = "<group>"; };
 		92591CBEAFDE51E7D4630274 /* RevealInFinderActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealInFinderActionTests.swift; sourceTree = "<group>"; };
@@ -1082,6 +1086,7 @@
 			children = (
 				287DF09DC26BE3ACE16F3B53 /* AppDelegate.swift */,
 				2582277236A4342581920E66 /* Assets.xcassets */,
+				766DE73D93DAB331F0A0EDC0 /* ForkBehavior.swift */,
 				8B521F6AE4BA6FD8516E8A1B /* Info.plist */,
 				4C6012F951674D4CC529611B /* OpenClip.entitlements */,
 				871B6048B7968E61FCB53537 /* OpenClipApp.swift */,
@@ -1510,6 +1515,7 @@
 				FADAC40972B146605441712F /* ExtensionUpdatePlannerTests.swift */,
 				36074506EE28161A7C12C456 /* FileOutputKindTests.swift */,
 				4B55371F5400350570C84202 /* FileOutputTests.swift */,
+				91D02EEE04857740AAD1F2B5 /* ForkBehaviorTests.swift */,
 				C0A5C800BE48C74A05B33DDA /* GoldenExtensionPlatformTests.swift */,
 				F22A90B773C83E7891252D3F /* GroupSubActionBarViewTests.swift */,
 				E9CB80BD9BDEB6CA9AA95B1F /* HotkeyManagerTests.swift */,
@@ -1783,6 +1789,7 @@
 				F499E888422C2452E64E2F06 /* ExtensionsStoreViewTests.swift in Sources */,
 				526AF3532E15741E83018E42 /* FileOutputKindTests.swift in Sources */,
 				04189A9019D949E0F4AC1313 /* FileOutputTests.swift in Sources */,
+				383971390B74D5FA755D3055 /* ForkBehaviorTests.swift in Sources */,
 				2140964D90DA799B312DED49 /* GoldenExtensionPlatformTests.swift in Sources */,
 				811D5963BD80628028652B4E /* GroupSubActionBarViewTests.swift in Sources */,
 				92D959B69A39A6C74F888488 /* HotkeyManagerTests.swift in Sources */,
@@ -2020,6 +2027,7 @@
 				C0E71AC2BEA935E486797943 /* ExtensionUpdateManager.swift in Sources */,
 				3FCC9285E343CE0E0A7D2783 /* ExtensionsDirectoryWatcher.swift in Sources */,
 				1302C89033CA876F66631A4B /* ExtensionsStoreView.swift in Sources */,
+				98376CBA28C8D6CD74E97F87 /* ForkBehavior.swift in Sources */,
 				4B02DF82BA5A3B961C1BE2C5 /* GeneralTabView.swift in Sources */,
 				A84AC0EE09C7C092975A8641 /* GroupEditorPage.swift in Sources */,
 				8AB5DA8220E66C8D77EA64FA /* GroupSubActionBarView.swift in Sources */,

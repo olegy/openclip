@@ -47,8 +47,10 @@ struct GeneralTab: View {
                     .onReceive(NotificationCenter.default.publisher(for: Notification.Name("OpenClipEnabledStateChanged"))) { notification in
                         isAppEnabled = (notification.object as? Bool) ?? DefaultSettingsStore.shared.get(.isAppEnabled)
                     }
+                    .hiddenInFork(!ForkBehavior.passiveSelectionMonitoring)
 
                     SettingsDivider()
+                        .hiddenInFork(!ForkBehavior.passiveSelectionMonitoring)
 
                     SettingsToggleRow(
                         title: "Hold Mouse to Trigger",
@@ -60,8 +62,10 @@ struct GeneralTab: View {
                     .onChange(of: isMouseHoldEnabled) { _, newValue in
                         DefaultSettingsStore.shared.set(.isMouseHoldEnabled, value: newValue)
                     }
+                    .hiddenInFork(!ForkBehavior.passiveSelectionMonitoring)
 
                     SettingsDivider()
+                        .hiddenInFork(!ForkBehavior.passiveSelectionMonitoring)
 
                     SettingsRow(
                         title: "Keyboard Shortcut",

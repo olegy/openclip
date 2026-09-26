@@ -152,6 +152,7 @@ private struct AppRuleRowView: View {
                         Text("Hotkey Only")
                     }
                 }
+                .hiddenInFork(!ForkBehavior.passiveSelectionMonitoring)
 
                 Button {
                     let updated = AppRule(

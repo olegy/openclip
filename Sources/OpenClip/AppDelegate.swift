@@ -118,10 +118,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
                   let source = popup.sourceAppBundleID, let bundleID else { return false }
             return bundleID == source
         }
-        selectionMonitor = macMonitor
+        // Fork: without a stored monitor every `selectionMonitor?.start()` below is a no-op, so
+        // nothing reads the selection until a hotkey fires (see ForkBehavior).
+        if ForkBehavior.passiveSelectionMonitoring {
+            selectionMonitor = macMonitor
+        }
 
         // Setup global shortcut hotkey manager
-        HotkeyManager.shared.setup(popupController: controller, selectionMonitor: macMonitor)
+        HotkeyManager.shared.setup(popupController: controller, selectionMonitor: selectionMonitor)
 
         Task {
             let optionStore = SecretActionOptionStore()

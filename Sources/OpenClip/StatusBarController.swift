@@ -132,6 +132,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
         )
         toggleItem.target = self
         toggleItem.state = isEnabled ? .on : .off
+        toggleItem.isHidden = !ForkBehavior.passiveSelectionMonitoring
         menu.addItem(toggleItem)
         self.toggleEnabledItem = toggleItem
 
@@ -557,6 +558,8 @@ class StatusBarController: NSObject, NSMenuDelegate {
     }
     
     private func updateStatusIcon(isEnabled: Bool) {
+        // Fork: "Appear Automatically" does nothing without passive monitoring, so only Pause dims.
+        let isEnabled = isEnabled || !ForkBehavior.passiveSelectionMonitoring
         let isPaused = settingsStore.get(.pauseUntilTimestamp) > Date().timeIntervalSince1970
         let effectiveEnabled = isEnabled && !isPaused
         if let button = statusItem?.button {
@@ -567,6 +570,8 @@ class StatusBarController: NSObject, NSMenuDelegate {
             button.setAccessibilityLabel("OpenClip")
             if isPaused {
                 button.setAccessibilityValue(String(localized: "OpenClip is paused"))
+            } else if !ForkBehavior.passiveSelectionMonitoring {
+                button.setAccessibilityValue(nil)
             } else {
                 button.setAccessibilityValue(isEnabled ? String(localized: "Appear Automatically is on") : String(localized: "Appear Automatically is off"))
             }

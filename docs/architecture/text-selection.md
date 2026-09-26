@@ -40,9 +40,12 @@ The subsystem consists of three primary components:
 
 Every retrieval request (mouse-up drag, ⌘A/⇧+arrow gesture, or the ⌥⌘C hotkey) runs through `SelectionRetrievalCoordinator.retrieve(for:policy:cursor:)`:
 
-> **Fork note:** in this fork the palette hotkey starts its own retrieval at the moment it fires
-> and no longer reuses the passive monitor's cache — see *Shortcut Resolution* below. The rest
-> of this document still describes upstream behavior (passive monitoring is removed later).
+> **Fork note:** in this fork nothing reads the selection until a hotkey fires. The palette
+> hotkey starts its own retrieval at that moment — see *Shortcut Resolution* below — and passive
+> monitoring is off: `ForkBehavior.passiveSelectionMonitoring` is `false`, so `AppDelegate` never
+> stores or starts `MacSelectionMonitor`, and "Appear Automatically", "Hold Mouse to Trigger" and
+> the per-app "Hotkey Only" rule are hidden. The mouse-up / keyboard / hold paths described
+> below are upstream behavior that the fork keeps in code but does not run.
 
 1. **Fresh AX snapshot** — `AXElementInspector.inspect()` resolves the focused application, then the focused UI element *from that application*, never from the system-wide element (the classic source of stale reads). It collects the role, parent/container roles, selection attributes, and selection bounds. The blocking snapshot runs on the dedicated `com.openclip.ax-inspect` queue, raced against `Constants.axReadTimeout` (0.5 s) via a once-resume gate; a hung or unresponsive target yields `nil` instead of stalling the popup.
 2. **Gate** — [`SelectionGatePolicy`](../../Sources/Core/Rules/SelectionGatePolicy.swift) decides whether to attempt retrieval at all:
@@ -132,6 +135,9 @@ The global toggle shortcut ([`HotkeyManager`](../../Sources/OpenClip/Platform/Ho
 3. **Empty Context Fallback**: If the clipboard is also empty, an empty selection context is created with the frontmost app's identity, allowing standalone actions to run.
 
 Passive selection monitoring continues even when "Appear Automatically" is disabled (`isAppEnabled == false` or `hotkeyOnly: true`), updating `latestSelection` and pre-warming the search index in the background so pressing the shortcut opens the palette with zero perceptual delay. `isAppEnabled` is the global form of the per-app `hotkeyOnly` rule: it gates only the monitor's passive (mouse-release/keyboard) auto-show. The explicit hold gesture delivers straight from `handleMouseDown` and stays unaffected.
+
+> **Fork note:** not in this fork — the monitor never runs (see the fork note at the top), so there
+> is no cache or index pre-warming; the palette builds its index when it opens.
 
 ---
 
