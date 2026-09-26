@@ -260,6 +260,7 @@ public class PopupWindowController {
             verticalPosition: verticalPosition
         )
         cardAbove = tempFrame.minY < screenBounds.minY + PopupMetrics.cardAboveThreshold
+        if initialMode == .search, ForkBehavior.spotlightPlacement { cardAbove = false }
 
         modeStore.mode = initialMode
         PaletteRowShortcuts.setActive(initialMode == .search)
@@ -402,6 +403,13 @@ public class PopupWindowController {
         cardAbove = calculatedFrame.minY < screenBounds.minY + PopupMetrics.cardAboveThreshold
         modeStore.searchResultsAbove = cardAbove
         modeStore.subBarAbove = PopupPositioner.isPlacedAbove(frame: calculatedFrame, releasePoint: context.cursorPosition)
+        if initialMode == .search, ForkBehavior.spotlightPlacement {
+            // Fork: the palette opens Spotlight-style on the mouse's screen, not at the cursor;
+            // results always list below the field.
+            panel.setFrame(PopupPositioner.spotlightFrame(size: size, in: screenBounds), display: true)
+            cardAbove = false
+            modeStore.searchResultsAbove = false
+        }
         lastPopupFrame = panel.frame
         // Placement is fixed; any subsequent content-driven width change (search palette,
         // pagination) must re-center rather than drift off the cursor.
@@ -699,6 +707,17 @@ public class PopupWindowController {
             if let panel { panel.heightCap = screenBounds(for: panel).height }
             modeStore.resultCardSize = rememberedSize(for: .card)
             modeStore.isSurfaceUserSized = false
+            if ForkBehavior.spotlightPlacement, let panel {
+                // Fork: the card takes the palette's size and place instead of growing out of the
+                // bar at the cursor. A fixed size renders verbatim, so later fits keep the frame.
+                let cardSize = CGSize(width: PopupMetrics.searchPanelContentWidth, height: PopupMetrics.searchPaletteMinHeight)
+                modeStore.resultCardSize = cardSize
+                modeStore.isSurfaceUserSized = true
+                panel.pinBottomEdgeOnResize = false
+                let inset = 2 * PopupMetrics.popupShadowInset
+                let panelSize = CGSize(width: cardSize.width + inset, height: cardSize.height + inset)
+                panel.setFrame(PopupPositioner.spotlightFrame(size: panelSize, in: screenBounds(for: panel)), display: true)
+            }
             modeStore.mode = .content
             enterKeyMode()
         }

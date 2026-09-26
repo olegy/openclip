@@ -335,6 +335,15 @@ already visible; the bar's command-glyph button enters search via `onEnterSearch
   instead (`enterSearch(buttonLocalFrame:)` + `preSearchFrame`), so the field opens over the row
   that was clicked.
 
+  > **Fork note:** with `ForkBehavior.spotlightPlacement` on, a palette opened by the hotkey is
+  > re-placed right after `positionPanel` with `PopupPositioner.spotlightFrame`: horizontally
+  > centered on the screen containing the mouse, its center `spotlightLift` (10 %) of the screen
+  > height above the middle, results always below the field. Its size is fixed at 680 × 414 pt
+  > (`searchPanelContentWidth` / `searchPaletteMinHeight`, 2× / 1.5× upstream's 340 × 276; the
+  > minimum height wins over `defaultHeight`). A result card entering content mode takes the same
+  > size (`resultCardSize` + `isSurfaceUserSized`, so the remembered card size is not used) and the
+  > same Spotlight frame; the loading toast centers on the palette's frame, so it lands there too.
+
 ### Scoped Sub-Action Palette
 
 Opening a group/AI bar row and reaching the palette from hotkey are the same surface, differing only

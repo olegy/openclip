@@ -12,6 +12,12 @@ enum ForkBehavior {
     /// started, and the settings that only configure it ("Appear Automatically", "Hold Mouse to
     /// Trigger", the per-app "Hotkey Only" rule) are hidden.
     static let passiveSelectionMonitoring = false
+
+    /// Upstream anchors the search palette and the result card on the cursor, and the card sizes
+    /// itself to its text. The fork opens both Spotlight-style — centered, a little above the
+    /// middle of the screen with the mouse — and gives the card the palette's size. The loading
+    /// toast centers on the palette's frame, so it follows.
+    static let spotlightPlacement = true
 }
 
 extension View {

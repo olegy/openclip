@@ -110,7 +110,8 @@ public enum PopupMetrics {
     /// above the action bar instead of below (numerically equals `popupDismissalDistance`).
     public static let cardAboveThreshold: CGFloat = 280.0
     /// Action-search palette sizing: content width, total panel width, visible result rows and result row height.
-    public static let searchPanelContentWidth: CGFloat = 340.0
+    /// Fork: 2× upstream's 340 pt column.
+    public static let searchPanelContentWidth: CGFloat = 680.0
     public static var searchPanelWidth: CGFloat { searchPanelContentWidth + 2 * popupShadowInset }
     public static let searchMaxRows: Int = 6
     public static let searchResultRowHeight: CGFloat = 31
@@ -119,7 +120,9 @@ public enum PopupMetrics {
     public static let searchPeekRowFraction: CGFloat = 0.0
     /// Smallest size the palette allows: compacts to default width (340 pt) and visible rows height.
     public static let searchPaletteMinWidth: CGFloat = searchPanelContentWidth
-    public static let searchPaletteMinHeight: CGFloat = 276.0
+    /// Fork: 1.5× upstream's 276 pt. The minimum wins over `PopupSearchView.defaultHeight`, so this
+    /// is the palette's height; the result card takes the same size (see `ForkBehavior`).
+    public static let searchPaletteMinHeight: CGFloat = 414.0
     /// Shared height cap for the popup panel (search palette field + result rows and content cards).
     /// Lifted per session via `PopupPanel.heightCap` while a resizable surface shows.
     public static let popupMaxHeight: CGFloat = 312
