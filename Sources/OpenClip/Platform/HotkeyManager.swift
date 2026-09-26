@@ -19,8 +19,10 @@ extension KeyboardShortcuts.Name {
 @MainActor
 public final class HotkeyManager {
     public static let shared = HotkeyManager()
-    private var lastFallbackClipboard: (changeCount: Int, text: String)?
     private weak var popupController: PopupWindowController?
+    private var paletteReadTask: Task<Void, Never>?
+    /// Reads the frontmost app's selection for the palette hotkey. Injectable for tests.
+    internal var selectionReader: @MainActor (AppIdentity, AppPolicyContext) async -> TextResult? = HotkeyManager.readSelection
     public weak var selectionMonitor: (any SelectionMonitoring)?
     private var cancellables = Set<AnyCancellable>()
     private var registeredHotkeyIDs: Set<String> = []
@@ -85,9 +87,18 @@ public final class HotkeyManager {
             return
         }
 
-        guard let trigger = self.resolveSynchronousTrigger(frontmostApp: frontmostApp) else { return }
+        // Read the selection on demand (fork: the palette no longer uses the selection monitor's
+        // cache). A second press while the read is still in flight is ignored.
+        guard paletteReadTask == nil else { return }
+        paletteReadTask = Task { @MainActor in
+            defer { self.paletteReadTask = nil }
+            guard let trigger = await self.resolvePaletteTrigger(frontmostApp: frontmostApp) else { return }
+            self.presentPalette(for: trigger)
+        }
+    }
 
-        // When both the monitored selection and clipboard are empty, check whether there are any
+    private func presentPalette(for trigger: (context: SelectionContext, canPaste: Bool?)) {
+        // When both the selection and clipboard are empty, check whether there are any
         // standalone actions (e.g. extensions declaring `requiresSelection: false`) available to run.
         // If not, avoid showing an empty search palette ("No matching actions" dead end); instead,
         // surface a lightweight floating toast anchored at the mouse cursor.
@@ -111,17 +122,20 @@ public final class HotkeyManager {
         self.popupController?.show(for: trigger.context, pasteAvailable: trigger.canPaste, initialMode: .search)
     }
 
-    /// Synchronous retrieve path for ⌥⌘C: checks gating, reuses monitored selection,
-    /// falls back to clipboard (paste fallback), or falls back to an empty context so the search
-    /// palette opens with zero delay.
+    /// Retrieve path for ⌥⌘C: checks gating, reads the selection on demand through
+    /// `selectionReader`, falls back to clipboard (paste fallback), or falls back to an empty
+    /// context so the search palette still opens for standalone actions.
+    ///
+    /// The read does not wait for the hotkey's modifiers to be released: synthetic ⌘C carries
+    /// explicit flags, and measured reads (10–65 ms) stayed correct with ⌃⌥⇧⌘ physically held.
     ///
     /// When `frontmostApp` is `nil` (common during clipboard-manager handoffs) the method skips
-    /// the per-app gating and monitored-selection paths, falling straight through to clipboard /
+    /// the per-app gating and selection read, falling straight through to clipboard /
     /// empty-context. The global pause check still applies.
-    internal func resolveSynchronousTrigger(
+    internal func resolvePaletteTrigger(
         frontmostApp: NSRunningApplication? = NSWorkspace.shared.frontmostApplication,
         settingsStore: SettingsStore = DefaultSettingsStore.shared
-    ) -> (context: SelectionContext, canPaste: Bool?)? {
+    ) async -> (context: SelectionContext, canPaste: Bool?)? {
         // Global pause applies regardless of which app is frontmost.
         if settingsStore.get(.pauseUntilTimestamp) > Date().timeIntervalSince1970 {
             return nil
@@ -132,7 +146,7 @@ public final class HotkeyManager {
         // skip the per-app checks and fall through to the clipboard / empty-context path.
         let appIdentity: AppIdentity
         let policy: AppPolicyContext
-        let canUseMonitoredSelection: Bool
+        let readableApp: NSRunningApplication?
 
         if let frontApp = frontmostApp,
            let bundleID = frontApp.bundleIdentifier {
@@ -141,48 +155,49 @@ public final class HotkeyManager {
             if resolved.disabled { return nil }
             appIdentity = AppIdentity(frontApp)
             policy = resolved
-            canUseMonitoredSelection = true
+            readableApp = frontApp
         } else {
             // No identifiable app — use a neutral identity. Per-app exclusion and disabled
             // rules cannot apply without a bundle ID, so we only honour the global pause
             // (checked above).
             appIdentity = AppIdentity(bundleIdentifier: nil, localizedName: nil)
             policy = .default
-            canUseMonitoredSelection = false
+            readableApp = nil
         }
 
-        // 1. Fast path: reuse active monitored selection if fresh (requires a known app)
-        if canUseMonitoredSelection,
-           let monitored = selectionMonitor?.synchronousSelection(for: frontmostApp?.bundleIdentifier) {
-            let text = monitored.context.text
-            if TextSanitizer.isSubstantial(text),
-               text.utf8.count <= Constants.maxTextLength {
-                let context = SelectionContext(
-                    text: text,
-                    sourceApp: monitored.context.sourceApp,
-                    cursorPosition: NSEvent.mouseLocation,
-                    mouseDownLocation: monitored.context.mouseDownLocation,
-                    selectionBounds: monitored.context.selectionBounds,
-                    timestamp: monitored.context.timestamp,
-                    appPolicy: monitored.context.appPolicy,
-                    isClipboardFallback: monitored.context.isClipboardFallback,
-                    html: monitored.context.html,
-                    rtf: monitored.context.rtf
-                )
-                return (context, monitored.canPaste)
+        // 1. Read the selection now (requires a known app); the paste probe runs alongside.
+        if let readableApp {
+            let probeTask = popupController?.preparePasteProbe(for: readableApp, policy: policy)
+            if let result = await selectionReader(appIdentity, policy) {
+                let text = result.text
+                if TextSanitizer.isSubstantial(text),
+                   text.utf8.count <= Constants.maxTextLength {
+                    let context = SelectionContext(
+                        text: text,
+                        sourceApp: appIdentity,
+                        cursorPosition: NSEvent.mouseLocation,
+                        selectionBounds: result.bounds,
+                        timestamp: Date(),
+                        appPolicy: policy,
+                        isClipboardFallback: false,
+                        html: result.html,
+                        rtf: result.rtf,
+                        flavors: result.flavors
+                    )
+                    return (context, await probeTask?.value)
+                }
             }
+            probeTask?.cancel()
         }
 
-        // 2. Paste fallback: read clipboard text synchronously
+        // 2. Paste fallback: read clipboard text
         let pasteboard = NSPasteboard.general
-        let currentChangeCount = pasteboard.changeCount
         var retrievedText = ""
         var isClipboardFallback = false
         if let clipboard = pasteboard.string(forType: .string),
            !clipboard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             retrievedText = clipboard
             isClipboardFallback = true
-            lastFallbackClipboard = (currentChangeCount, clipboard)
         }
 
         if TextSanitizer.isSubstantial(retrievedText),
@@ -242,7 +257,7 @@ public final class HotkeyManager {
         }
     }
 
-    /// Shared retrieve path for ⌥⌘C and per-action hotkeys: gate, probe paste, read selection
+    /// Retrieve path for per-action hotkeys: gate, probe paste, read selection
     /// (clipboard fallback), reject empty/oversized input.
     internal func collectTrigger(
         frontmostApp: NSRunningApplication? = NSWorkspace.shared.frontmostApplication
@@ -292,12 +307,10 @@ public final class HotkeyManager {
         var isClipboardFallback = false
         if retrievedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let pasteboard = NSPasteboard.general
-            let currentChangeCount = pasteboard.changeCount
             if let clipboard = pasteboard.string(forType: .string),
                !clipboard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 retrievedText = clipboard
                 isClipboardFallback = true
-                lastFallbackClipboard = (currentChangeCount, clipboard)
             }
         }
 
@@ -315,5 +328,17 @@ public final class HotkeyManager {
         )
         let canPaste = await probeTask?.value
         return (context, canPaste)
+    }
+
+    /// Default `selectionReader`: one OpenSelection retrieval with the copy fallback allowed
+    /// unless a foreign overlay (e.g. a screenshot tool) sits under the cursor.
+    private static func readSelection(_ app: AppIdentity, _ policy: AppPolicyContext) async -> TextResult? {
+        await SelectionRetrievalCoordinator().retrieveDetails(
+            for: app,
+            policy: policy,
+            cursor: CursorClassifier.current.asCore,
+            allowCopyFallback: !CopyTriggerGate.isForeignOverlayPresent(at: NSEvent.mouseLocation),
+            requireCopyEvidence: false
+        ).result
     }
 }

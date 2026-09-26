@@ -40,10 +40,9 @@ The subsystem consists of three primary components:
 
 Every retrieval request (mouse-up drag, ⌘A/⇧+arrow gesture, or the ⌥⌘C hotkey) runs through `SelectionRetrievalCoordinator.retrieve(for:policy:cursor:)`:
 
-> **Inaccurate (fork note):** the palette hotkey does not start a retrieval. It reuses the passive
-> monitor's cached selection, or falls back to the clipboard — see *Shortcut Clipboard Fallback*
-> below. This document still describes upstream behavior and will be rewritten when the fork's
-> hotkey-driven retrieval lands.
+> **Fork note:** in this fork the palette hotkey starts its own retrieval at the moment it fires
+> and no longer reuses the passive monitor's cache — see *Shortcut Resolution* below. The rest
+> of this document still describes upstream behavior (passive monitoring is removed later).
 
 1. **Fresh AX snapshot** — `AXElementInspector.inspect()` resolves the focused application, then the focused UI element *from that application*, never from the system-wide element (the classic source of stale reads). It collects the role, parent/container roles, selection attributes, and selection bounds. The blocking snapshot runs on the dedicated `com.openclip.ax-inspect` queue, raced against `Constants.axReadTimeout` (0.5 s) via a once-resume gate; a hung or unresponsive target yields `nil` instead of stalling the popup.
 2. **Gate** — [`SelectionGatePolicy`](../../Sources/Core/Rules/SelectionGatePolicy.swift) decides whether to attempt retrieval at all:
@@ -120,12 +119,12 @@ Both copy modes run through [`PasteboardCopyEngine`](../../Sources/OpenClip/Plat
 
 ---
 
-## Shortcut Clipboard Fallback & Synchronous Resolution
+## Shortcut Resolution & Clipboard Fallback
 
-The retrieval path above applies to *passive selection monitoring*. The global toggle shortcut ([`HotkeyManager`](../../Sources/OpenClip/Platform/HotkeyManager.swift)) runs a strictly **synchronous resolution pipeline** on `@MainActor` without incurring asynchronous AX query latency:
+The global toggle shortcut ([`HotkeyManager`](../../Sources/OpenClip/Platform/HotkeyManager.swift)) resolves its input in `resolvePaletteTrigger` (fork behavior; upstream reused the passive monitor's cached selection):
 
-1. **Monitored Selection Reuse**: The hotkey checks `selectionMonitor.synchronousSelection(for: frontmostBundleID)`. If the user recently selected text in the active application and that selection has not expired (`Constants.selectionMaxAge` = 30 s) or been cleared by caret navigation / typing, the monitored selection is reused immediately.
-2. **Clipboard Fallback**: If no valid monitored selection exists, OpenClip falls back to the current contents of `NSPasteboard.general` so the search palette still has input to act on.
+1. **On-demand read**: after the gating checks, the hotkey reads the frontmost app's selection through `SelectionRetrievalCoordinator.retrieveDetails` (copy fallback allowed unless a foreign overlay is under the cursor, no copy evidence required), with the paste probe running alongside. The palette opens once the read returns; html/rtf/flavors are kept. The read does not wait for the hotkey's modifiers to be released: synthetic ⌘C carries explicit flags, and measured reads took 10–65 ms (to palette: 15–65 ms) across native, browser, Electron and editor apps with ⌃⌥⇧⌘ still held. A second press while a read is in flight is ignored.
+2. **Clipboard Fallback**: If the read returns no substantial text, OpenClip falls back to the current contents of `NSPasteboard.general` so the search palette still has input to act on.
    - The context is flagged `SelectionContext.isClipboardFallback`; `PopupWindowController.show` filters available actions down to **Paste** (and AI Tools launcher).
      > **Inaccurate (fork note):** only actions whose `ActionChrome.requiresLiveSelection` is true
      > (Copy, Cut) are removed, in `ActionRegistry` — every other action still runs on the

@@ -11,12 +11,26 @@ import KeyboardShortcuts
 /// **not** one of those gates: it owns the automatic popup only.
 @MainActor
 final class HotkeyManagerTests: XCTestCase {
+    private var originalSelectionReader: (@MainActor (AppIdentity, AppPolicyContext) async -> TextResult?)?
+
     override func setUp() async throws {
         try await super.setUp()
         await MainActor.run {
             TestIsolation.reset()
             HotkeyManager.shared.selectionMonitor = nil
+            // Never read the real frontmost app's selection from tests.
+            originalSelectionReader = HotkeyManager.shared.selectionReader
+            HotkeyManager.shared.selectionReader = { _, _ in nil }
         }
+    }
+
+    override func tearDown() async throws {
+        await MainActor.run {
+            if let originalSelectionReader {
+                HotkeyManager.shared.selectionReader = originalSelectionReader
+            }
+        }
+        try await super.tearDown()
     }
 
     /// "Appear Automatically" off means the popup stops following selections — the shortcut is an
@@ -150,30 +164,85 @@ final class HotkeyManagerTests: XCTestCase {
         XCTAssertNotEqual(trigger?.context.text, "safari text")
     }
 
-    func testResolveSynchronousTriggerReusesMonitoredSelection() {
+    func testPaletteTriggerReadsSelectionOnDemand() async {
+        let manager = HotkeyManager.shared
+        var readBundleID: String?
+        manager.selectionReader = { app, _ in
+            readBundleID = app.bundleIdentifier
+            return TextResult(
+                text: "on-demand text",
+                bounds: CGRect(x: 10, y: 10, width: 100, height: 20),
+                html: "<b>on-demand text</b>"
+            )
+        }
+
+        let frontmost = MockFrontmostApp(bundleID: "com.apple.TextEdit")
+        let trigger = await manager.resolvePaletteTrigger(frontmostApp: frontmost)
+
+        XCTAssertEqual(readBundleID, "com.apple.TextEdit")
+        XCTAssertEqual(trigger?.context.text, "on-demand text")
+        XCTAssertEqual(trigger?.context.isClipboardFallback, false)
+        XCTAssertEqual(trigger?.context.selectionBounds, CGRect(x: 10, y: 10, width: 100, height: 20))
+        XCTAssertEqual(trigger?.context.html, "<b>on-demand text</b>")
+    }
+
+    /// Fork: the palette must not reuse the selection monitor's cache — it can be up to 30 s stale
+    /// and the monitor is going away.
+    func testPaletteTriggerIgnoresMonitoredSelection() async {
         let manager = HotkeyManager.shared
         let monitor = MockSelectionMonitor()
         let app = AppIdentity(bundleIdentifier: "com.apple.TextEdit", localizedName: "TextEdit")
-        let selection = SelectionContext(
-            text: "monitored sync text",
-            sourceApp: app,
-            cursorPosition: CGPoint(x: 50, y: 50),
-            selectionBounds: CGRect(x: 10, y: 10, width: 100, height: 20),
-            timestamp: Date(),
-            appPolicy: .default
+        monitor.latestSelection = (
+            context: SelectionContext(
+                text: "stale monitored text",
+                sourceApp: app,
+                cursorPosition: .zero,
+                selectionBounds: nil,
+                timestamp: Date(),
+                appPolicy: .default
+            ),
+            canPaste: true
         )
-        monitor.latestSelection = (context: selection, canPaste: true)
         manager.selectionMonitor = monitor
+        manager.selectionReader = { _, _ in TextResult(text: "fresh text", bounds: nil) }
 
         let frontmost = MockFrontmostApp(bundleID: "com.apple.TextEdit")
-        let trigger = manager.resolveSynchronousTrigger(frontmostApp: frontmost)
+        let trigger = await manager.resolvePaletteTrigger(frontmostApp: frontmost)
 
-        let result = try? XCTUnwrap(trigger)
-        XCTAssertEqual(result?.context.text, "monitored sync text")
-        XCTAssertEqual(result?.canPaste, true)
+        XCTAssertEqual(trigger?.context.text, "fresh text")
     }
 
-    func testResolveSynchronousTriggerFallsBackToClipboardWhenNoMonitoredSelection() {
+    func testPaletteTriggerFallsBackToClipboardWhenReadIsBlank() async {
+        let manager = HotkeyManager.shared
+        manager.selectionReader = { _, _ in TextResult(text: "   ", bounds: nil) }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("fallback clipboard text", forType: .string)
+
+        let frontmost = MockFrontmostApp(bundleID: "com.apple.TextEdit")
+        let trigger = await manager.resolvePaletteTrigger(frontmostApp: frontmost)
+
+        XCTAssertEqual(trigger?.context.text, "fallback clipboard text")
+        XCTAssertEqual(trigger?.context.isClipboardFallback, true)
+    }
+
+    func testPaletteTriggerDoesNotReadGatedApps() async {
+        let manager = HotkeyManager.shared
+        var didRead = false
+        manager.selectionReader = { _, _ in
+            didRead = true
+            return nil
+        }
+        RuleEngine.shared.addOrUpdateRule(AppRule(bundleIdentifiers: ["com.test.disabled"], disabled: true))
+
+        let trigger = await manager.resolvePaletteTrigger(frontmostApp: MockFrontmostApp(bundleID: "com.test.disabled"))
+
+        XCTAssertNil(trigger)
+        XCTAssertFalse(didRead)
+    }
+
+    func testPaletteTriggerFallsBackToClipboardWhenNothingSelected() async {
         let manager = HotkeyManager.shared
         let monitor = MockSelectionMonitor()
         manager.selectionMonitor = monitor
@@ -183,14 +252,14 @@ final class HotkeyManagerTests: XCTestCase {
         pasteboard.setString("fallback clipboard text", forType: .string)
 
         let frontmost = MockFrontmostApp(bundleID: "com.apple.TextEdit")
-        let trigger = manager.resolveSynchronousTrigger(frontmostApp: frontmost)
+        let trigger = await manager.resolvePaletteTrigger(frontmostApp: frontmost)
 
         let result = try? XCTUnwrap(trigger)
         XCTAssertEqual(result?.context.text, "fallback clipboard text")
         XCTAssertEqual(result?.context.isClipboardFallback, true)
     }
 
-    func testResolveSynchronousTriggerFallsBackToEmptyContextWhenClipboardEmpty() {
+    func testPaletteTriggerFallsBackToEmptyContextWhenClipboardEmpty() async {
         let manager = HotkeyManager.shared
         let monitor = MockSelectionMonitor()
         manager.selectionMonitor = monitor
@@ -199,7 +268,7 @@ final class HotkeyManagerTests: XCTestCase {
         pasteboard.clearContents()
 
         let frontmost = MockFrontmostApp(bundleID: "com.apple.TextEdit")
-        let trigger = manager.resolveSynchronousTrigger(frontmostApp: frontmost)
+        let trigger = await manager.resolvePaletteTrigger(frontmostApp: frontmost)
 
         let result = try? XCTUnwrap(trigger)
         XCTAssertEqual(result?.context.text, "")
@@ -209,7 +278,7 @@ final class HotkeyManagerTests: XCTestCase {
     /// Issue #74: When a clipboard manager (Paste, Raycast, Maccy) dismisses itself, macOS may
     /// report `frontmostApp` as `nil` during the transition. The trigger should still fire using
     /// clipboard text rather than silently dropping the hotkey.
-    func testResolveSynchronousTriggerFallsBackToClipboardWhenFrontmostAppIsNil() {
+    func testPaletteTriggerFallsBackToClipboardWhenFrontmostAppIsNil() async {
         let manager = HotkeyManager.shared
         let monitor = MockSelectionMonitor()
         manager.selectionMonitor = monitor
@@ -218,7 +287,7 @@ final class HotkeyManagerTests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.setString("clipboard from Paste app", forType: .string)
 
-        let trigger = manager.resolveSynchronousTrigger(frontmostApp: nil)
+        let trigger = await manager.resolvePaletteTrigger(frontmostApp: nil)
 
         let result = try? XCTUnwrap(trigger)
         XCTAssertEqual(result?.context.text, "clipboard from Paste app")
@@ -227,7 +296,7 @@ final class HotkeyManagerTests: XCTestCase {
         XCTAssertNil(result?.context.sourceApp.bundleIdentifier)
     }
 
-    func testResolveSynchronousTriggerFallsBackToEmptyWhenFrontmostAppNilAndClipboardEmpty() {
+    func testPaletteTriggerFallsBackToEmptyWhenFrontmostAppNilAndClipboardEmpty() async {
         let manager = HotkeyManager.shared
         let monitor = MockSelectionMonitor()
         manager.selectionMonitor = monitor
@@ -235,14 +304,14 @@ final class HotkeyManagerTests: XCTestCase {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
 
-        let trigger = manager.resolveSynchronousTrigger(frontmostApp: nil)
+        let trigger = await manager.resolvePaletteTrigger(frontmostApp: nil)
 
         let result = try? XCTUnwrap(trigger)
         XCTAssertEqual(result?.context.text, "")
         XCTAssertEqual(result?.context.isClipboardFallback, false)
     }
 
-    func testResolveSynchronousTriggerRespectsGlobalPauseEvenWithNilFrontmostApp() {
+    func testPaletteTriggerRespectsGlobalPauseEvenWithNilFrontmostApp() async {
         let manager = HotkeyManager.shared
         let store = MemorySettingsStore()
         store.set(.pauseUntilTimestamp, value: Date().timeIntervalSince1970 + 1800)
@@ -251,7 +320,7 @@ final class HotkeyManagerTests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.setString("should not appear", forType: .string)
 
-        let trigger = manager.resolveSynchronousTrigger(frontmostApp: nil, settingsStore: store)
+        let trigger = await manager.resolvePaletteTrigger(frontmostApp: nil, settingsStore: store)
         XCTAssertNil(trigger)
     }
 
