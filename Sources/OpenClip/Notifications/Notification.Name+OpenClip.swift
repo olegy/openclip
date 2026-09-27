@@ -34,4 +34,7 @@ extension Notification.Name {
     /// sidebar scrolls its selected row into view on this, because a reused window never sees
     /// `onAppear` again and the selection itself may not change.
     static let openClipPreferencesWindowDidShow = Notification.Name("OpenClipPreferencesWindowDidShow")
+    /// Posted right before the Settings window is brought forward, so an open popup can close
+    /// without handing focus back to the source app (which would cover Settings).
+    static let openClipPreferencesWindowWillShow = Notification.Name("OpenClipPreferencesWindowWillShow")
 }

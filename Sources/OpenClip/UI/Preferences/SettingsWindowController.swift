@@ -50,6 +50,7 @@ public final class SettingsWindowController: NSWindowController, NSWindowDelegat
             SettingsRouter.shared.select(tab.page)
         }
         guard let window else { return }
+        NotificationCenter.default.post(name: .openClipPreferencesWindowWillShow, object: nil)
         if window.frame.height < 640 {
             var frame = window.frame
             let delta: CGFloat = 640 - frame.height

@@ -1159,6 +1159,7 @@ public class PopupWindowController {
         NotificationCenter.default.addObserver(self, selector: #selector(menuDidEndTracking), name: NSMenu.didEndTrackingNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(appDidDeactivate), name: NSApplication.didResignActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(windowDidResignKey(_:)), name: NSWindow.didResignKeyNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(preferencesWindowWillShow), name: .openClipPreferencesWindowWillShow, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(workspaceDidActivateApp(_:)), name: NSWorkspace.didActivateApplicationNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(workspaceActiveSpaceDidChange), name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
     }
@@ -1481,6 +1482,16 @@ public class PopupWindowController {
         if !isMenuTracking && !isRightClickInProgress && !cardIsModal {
             hide()
         }
+    }
+
+    /// Settings is about to come forward (⌘, from the palette, or an action asking to be
+    /// configured). Close now, before Settings takes key, and without re-activating the source
+    /// app: dismissed by that key change instead, `exitKeyMode()` ran with OpenClip already active
+    /// and brought the source app back over Settings.
+    @objc private func preferencesWindowWillShow() {
+        guard !cardIsModal else { return }
+        previousFrontmostApp = nil
+        hide()
     }
 
     @objc private func windowDidResignKey(_ notification: Notification) {
