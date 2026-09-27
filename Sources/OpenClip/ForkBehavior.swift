@@ -33,6 +33,12 @@ enum ForkBehavior {
     /// comes from instead — a selection/clipboard switch (Tab toggles it when both were read) —
     /// and the start of that text (`PaletteSourceFooter`).
     static let paletteSourceFooter = true
+
+    /// Upstream's palette row ends with a ⌘-digit hint (first nine rows). The fork shows the
+    /// action's alias and its hotkey from Settings in front of it — alias → hotkey → ⌘N, each
+    /// only when set (`PaletteRowAccessories`). An inline preview still covers them until ⌘ is
+    /// held, and is twice as wide (`PopupMetrics.inlineSearchAccessoryMaxWidth`).
+    static let paletteRowAccessories = true
 }
 
 extension View {

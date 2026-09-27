@@ -700,5 +700,6 @@
   "No text": "テキストなし",
   "Selection": "選択範囲",
   "Clipboard": "クリップボード",
-  "Text source": "テキストのソース"
+  "Text source": "テキストのソース",
+  "Alias %@": "エイリアス %@"
 }

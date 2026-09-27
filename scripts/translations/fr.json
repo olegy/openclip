@@ -700,5 +700,6 @@
   "No text": "Aucun texte",
   "Selection": "Sélection",
   "Clipboard": "Presse-papiers",
-  "Text source": "Source du texte"
+  "Text source": "Source du texte",
+  "Alias %@": "Alias %@"
 }

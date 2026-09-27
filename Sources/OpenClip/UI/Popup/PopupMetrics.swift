@@ -49,7 +49,8 @@ public enum PopupMetrics {
     /// Previous 0.50s cut off heavy JS at the p50; 0.90s covers p99 with margin. (was 0.50s)
     public static let inlineEvaluationTimeout: TimeInterval = 0.90
     /// Maximum width (pt at 1.0 scale) for the trailing inline accessory in the search palette.
-    public static let inlineSearchAccessoryMaxWidth: CGFloat = 120.0
+    /// Fork: 240 (upstream 120, sized for its 340 pt palette) — the Spotlight palette is 680 pt wide.
+    public static let inlineSearchAccessoryMaxWidth: CGFloat = 240.0
     /// Corner radius for popup action bars and sub-bars (normalized baseline).
     public static let popupCornerRadius: CGFloat = 12.0
     /// Corner radius for modal result cards and the action-search palette.

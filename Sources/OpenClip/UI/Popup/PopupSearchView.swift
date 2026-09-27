@@ -530,6 +530,17 @@ public struct PopupSearchView: View {
                                 : PopupThemeModel.restSecondary(for: effectiveTheme)
                         )
                         .transition(.opacity)
+                } else if ForkBehavior.paletteRowAccessories {
+                    PaletteRowAccessories(
+                        items: PaletteRowAccessories.items(
+                            alias: item.alias,
+                            hotkey: PaletteRowAccessories.hotkey(for: item.action.id),
+                            commandDigit: Self.shortcutHint(forRow: index) != nil ? index + 1 : nil
+                        ),
+                        isSelected: isSelected,
+                        effectiveTheme: effectiveTheme
+                    )
+                    .transition(.opacity)
                 } else if let shortcut = Self.shortcutHint(forRow: index) {
                     Text(shortcut)
                         .font(.system(size: 11, weight: .medium, design: .rounded))

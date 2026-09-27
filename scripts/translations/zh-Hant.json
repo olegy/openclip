@@ -700,5 +700,6 @@
   "No text": "無文字",
   "Selection": "所選內容",
   "Clipboard": "剪貼板",
-  "Text source": "文字來源"
+  "Text source": "文字來源",
+  "Alias %@": "別名 %@"
 }
