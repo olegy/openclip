@@ -696,5 +696,9 @@
   "Moderate": "適中",
   "Default": "預設",
   "Wide": "寬",
-  "Maximum": "最大"
+  "Maximum": "最大",
+  "No text": "無文字",
+  "Selection": "所選內容",
+  "Clipboard": "剪貼板",
+  "Text source": "文字來源"
 }

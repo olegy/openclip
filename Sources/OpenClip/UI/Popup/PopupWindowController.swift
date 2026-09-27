@@ -26,6 +26,9 @@ public class PopupWindowController {
     private var currentContext: SelectionContext?
     public var sourceAppBundleID: String? { currentContext?.sourceApp.bundleIdentifier }
     var currentActionContext: ActionContext?
+    /// Fork: the palette's other text source (the clipboard while the selection is shown, or the
+    /// reverse); nil when only one was read. See `PopupWindowController+PaletteSource.swift`.
+    var paletteAlternateContext: SelectionContext?
     private var cardAbove = false
     /// Popup display mode (actions bar ↔ search palette ↔ result card), observed by PopupView.
     public let modeStore = PopupModeStore()
@@ -389,6 +392,10 @@ public class PopupWindowController {
             },
             onHideTooltip: { [weak self] in
                 self?.tooltipController.hide()
+            },
+            onSwitchPaletteSource: { [weak self] query in
+                // Deferred: switching replaces the hosting view whose key/click handler is running.
+                DispatchQueue.main.async { self?.switchPaletteSource(keeping: query) }
             }
         )
         syncPanelAppearance(panel)
@@ -1068,6 +1075,8 @@ public class PopupWindowController {
         modeStore.isSurfaceUserSized = false
         modeStore.canPaste = nil
         modeStore.inlineResults.removeAll()
+        paletteAlternateContext = nil
+        modeStore.paletteHasAlternateSource = false
         // A dismissed session must not leak its click intent into the next one (keyboard-driven
         // runs and any later snapshot read the last intent; force-copy must never persist). The
         // declared delivery is snapshotted per-perform, so a stale value must not leak either.

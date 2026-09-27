@@ -62,6 +62,9 @@ public struct PopupSearchView: View {
     /// Returns the click intent captured at mouse-down for the current click, so the palette's
     /// perform path can thread a force-copy click (⇧-click) into the action context.
     public let onClickIntent: @MainActor () -> ActionResultDelivery.ClickIntent
+    /// Fork: switches to the other text source (selection ↔ clipboard), passed the typed query so
+    /// the re-shown palette keeps it. Nil where there is no controller (previews).
+    public let onSwitchSource: (@MainActor (String) -> Void)?
     @State private var query = ""
     @State private var selectedIndex = 0
     @FocusState private var isFocused: Bool
@@ -218,7 +221,8 @@ public struct PopupSearchView: View {
         onActionPerformed: (@MainActor (String) -> Void)? = nil,
         onWillPerformAction: (@MainActor (any Action, ActionResultDelivery.ClickIntent) -> Void)? = nil,
         onRunLoadingAction: (@MainActor (any Action, ActionResultDelivery.ClickIntent) -> Void)? = nil,
-        onClickIntent: @escaping @MainActor () -> ActionResultDelivery.ClickIntent = { .primary }
+        onClickIntent: @escaping @MainActor () -> ActionResultDelivery.ClickIntent = { .primary },
+        onSwitchSource: (@MainActor (String) -> Void)? = nil
     ) {
         self.catalog = catalog
         self.context = context
@@ -238,6 +242,7 @@ public struct PopupSearchView: View {
         self.onWillPerformAction = onWillPerformAction
         self.onRunLoadingAction = onRunLoadingAction
         self.onClickIntent = onClickIntent
+        self.onSwitchSource = onSwitchSource
         // Index once at entry: the palette is recreated on every search entry (mode + scope
         // transition together), so the current catalog/scope are captured here. If a prewarmed
         // index matches the current catalog and recency, reuse it for instant appearance; otherwise build fresh.
@@ -253,6 +258,14 @@ public struct PopupSearchView: View {
         _searchIndex = State(initialValue: initialIndex)
         _results = State(initialValue: initialIndex)
         _naturalRowWidth = State(initialValue: Self.naturalRowWidth(for: initialIndex))
+        // Fork: a palette re-shown on the other text source starts with the query already typed.
+        let seedQuery = modeStore.paletteSeedQuery
+        if !seedQuery.isEmpty {
+            let seeded = ActionSearch.search(seedQuery, in: initialIndex)
+            _query = State(initialValue: seedQuery)
+            _results = State(initialValue: seeded)
+            _naturalRowWidth = State(initialValue: Self.naturalRowWidth(for: seeded))
+        }
     }
 
     public var body: some View {
@@ -341,6 +354,10 @@ public struct PopupSearchView: View {
                 }
                 if press.key == .downArrow {
                     moveSelection(by: 1)
+                    return .handled
+                }
+                if press.key == .tab, modeStore.paletteHasAlternateSource, let onSwitchSource {
+                    onSwitchSource(query)
                     return .handled
                 }
                 return .ignored
@@ -636,12 +653,24 @@ public struct PopupSearchView: View {
     /// The plain, borderless bottom bar matching the top search field.
     private var bottomBarRow: some View {
         HStack(spacing: 8) {
-            statusLabel
+            Group {
+                if ForkBehavior.paletteSourceFooter {
+                    PaletteSourceFooter(
+                        selection: context.selection,
+                        hasAlternate: modeStore.paletteHasAlternateSource,
+                        effectiveTheme: effectiveTheme,
+                        onSwitch: { onSwitchSource?(query) }
+                    )
+                } else {
+                    statusLabel
+                }
+            }
                 .padding(.leading, 14)
 
             Spacer(minLength: 8)
 
             footerActionButtons
+                .fixedSize()
                 .padding(.trailing, 14)
         }
         .frame(height: Self.footerHeight)

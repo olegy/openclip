@@ -97,7 +97,7 @@ public final class HotkeyManager {
         }
     }
 
-    private func presentPalette(for trigger: (context: SelectionContext, canPaste: Bool?)) {
+    private func presentPalette(for trigger: (context: SelectionContext, canPaste: Bool?, clipboard: SelectionContext?)) {
         // When both the selection and clipboard are empty, check whether there are any
         // standalone actions (e.g. extensions declaring `requiresSelection: false`) available to run.
         // If not, avoid showing an empty search palette ("No matching actions" dead end); instead,
@@ -119,7 +119,7 @@ public final class HotkeyManager {
             }
         }
 
-        self.popupController?.show(for: trigger.context, pasteAvailable: trigger.canPaste, initialMode: .search)
+        self.popupController?.showPalette(for: trigger.context, alternate: trigger.clipboard, pasteAvailable: trigger.canPaste)
     }
 
     /// Retrieve path for ⌥⌘C: checks gating, reads the selection on demand through
@@ -132,10 +132,14 @@ public final class HotkeyManager {
     /// When `frontmostApp` is `nil` (common during clipboard-manager handoffs) the method skips
     /// the per-app gating and selection read, falling straight through to clipboard /
     /// empty-context. The global pause check still applies.
+    ///
+    /// Fork: when the selection is read, the clipboard's text comes back too (`clipboard`), so
+    /// the palette can switch between the two. The clipboard is read before the selection, so a
+    /// synthetic ⌘C in flight can never be mistaken for it.
     internal func resolvePaletteTrigger(
         frontmostApp: NSRunningApplication? = NSWorkspace.shared.frontmostApplication,
         settingsStore: SettingsStore = DefaultSettingsStore.shared
-    ) async -> (context: SelectionContext, canPaste: Bool?)? {
+    ) async -> (context: SelectionContext, canPaste: Bool?, clipboard: SelectionContext?)? {
         // Global pause applies regardless of which app is frontmost.
         if settingsStore.get(.pauseUntilTimestamp) > Date().timeIntervalSince1970 {
             return nil
@@ -165,6 +169,8 @@ public final class HotkeyManager {
             readableApp = nil
         }
 
+        let clipboardText = Self.clipboardText()
+
         // 1. Read the selection now (requires a known app); the paste probe runs alongside.
         if let readableApp {
             let probeTask = popupController?.preparePasteProbe(for: readableApp, policy: policy)
@@ -184,34 +190,18 @@ public final class HotkeyManager {
                         rtf: result.rtf,
                         flavors: result.flavors
                     )
-                    return (context, await probeTask?.value)
+                    let clipboard = clipboardText.map {
+                        Self.clipboardContext(text: $0, sourceApp: appIdentity, policy: policy)
+                    }
+                    return (context, await probeTask?.value, clipboard)
                 }
             }
             probeTask?.cancel()
         }
 
-        // 2. Paste fallback: read clipboard text
-        let pasteboard = NSPasteboard.general
-        var retrievedText = ""
-        var isClipboardFallback = false
-        if let clipboard = pasteboard.string(forType: .string),
-           !clipboard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            retrievedText = clipboard
-            isClipboardFallback = true
-        }
-
-        if TextSanitizer.isSubstantial(retrievedText),
-           retrievedText.utf8.count <= Constants.maxTextLength {
-            let context = SelectionContext(
-                text: retrievedText,
-                sourceApp: appIdentity,
-                cursorPosition: NSEvent.mouseLocation,
-                selectionBounds: nil,
-                timestamp: Date(),
-                appPolicy: policy,
-                isClipboardFallback: isClipboardFallback
-            )
-            return (context, nil)
+        // 2. Paste fallback: the clipboard text read above
+        if let clipboardText {
+            return (Self.clipboardContext(text: clipboardText, sourceApp: appIdentity, policy: policy), nil, nil)
         }
 
         // 3. Fallback to empty context so search palette still opens for standalone actions
@@ -224,7 +214,31 @@ public final class HotkeyManager {
             appPolicy: policy,
             isClipboardFallback: false
         )
-        return (emptyContext, nil)
+        return (emptyContext, nil, nil)
+    }
+
+    /// The clipboard's text, if it is usable as the palette's input. Files copied in Finder also
+    /// put their names on the clipboard as a string; those are not text to act on.
+    private static func clipboardText() -> String? {
+        let pasteboard = NSPasteboard.general
+        if pasteboard.types?.contains(.fileURL) == true { return nil }
+        guard let text = pasteboard.string(forType: .string),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              TextSanitizer.isSubstantial(text),
+              text.utf8.count <= Constants.maxTextLength else { return nil }
+        return text
+    }
+
+    private static func clipboardContext(text: String, sourceApp: AppIdentity, policy: AppPolicyContext) -> SelectionContext {
+        SelectionContext(
+            text: text,
+            sourceApp: sourceApp,
+            cursorPosition: NSEvent.mouseLocation,
+            selectionBounds: nil,
+            timestamp: Date(),
+            appPolicy: policy,
+            isClipboardFallback: true
+        )
     }
 
     private func registerActionHotkeys(_ actions: [any Action]) {

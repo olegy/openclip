@@ -28,6 +28,11 @@ enum ForkBehavior {
     /// Upstream's menu bar menu links "Report Issue…" to upstream's issue tracker. The fork hides
     /// it there; Settings → About still has it.
     static let reportIssueMenuItem = false
+
+    /// Upstream's palette footer counts the matching actions. The fork shows where the text
+    /// comes from instead — a selection/clipboard switch (Tab toggles it when both were read) —
+    /// and the start of that text (`PaletteSourceFooter`).
+    static let paletteSourceFooter = true
 }
 
 extension View {

@@ -54,6 +54,12 @@ public final class PopupModeStore: ObservableObject {
     @Published public var activeSubGroupID: String? = nil
     /// Computed inline results for actions with `chrome.isInlineResult == true`, keyed by action ID.
     @Published public var inlineResults: [String: String] = [:]
+    /// Fork: true when the palette can switch to the other text source — the selection and the
+    /// clipboard were both read. The footer then shows both segments and Tab switches.
+    @Published public var paletteHasAlternateSource: Bool = false
+    /// Fork: the query a palette re-shown on the other text source starts with, so switching
+    /// sources keeps what was typed. Empty outside that switch.
+    public var paletteSeedQuery: String = ""
 
     public init() {}
 }

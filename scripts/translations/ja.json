@@ -696,5 +696,9 @@
   "Moderate": "標準",
   "Default": "デフォルト",
   "Wide": "ワイド",
-  "Maximum": "最大"
+  "Maximum": "最大",
+  "No text": "テキストなし",
+  "Selection": "選択範囲",
+  "Clipboard": "クリップボード",
+  "Text source": "テキストのソース"
 }

@@ -343,6 +343,17 @@ already visible; the bar's command-glyph button enters search via `onEnterSearch
   > minimum height wins over `defaultHeight`). A result card entering content mode takes the same
   > size (`resultCardSize` + `isSurfaceUserSized`, so the remembered card size is not used) and the
   > same Spotlight frame; the loading toast centers on the palette's frame, so it lands there too.
+
+  > **Fork note — text source footer:** with `ForkBehavior.paletteSourceFooter` on, the footer's
+  > leading side shows `PaletteSourceFooter` instead of the action count: a segmented
+  > selection/clipboard switch and the start of the text on one line ("No text" when there is
+  > none). `HotkeyManager.resolvePaletteTrigger` reads the clipboard before the selection and,
+  > when the selection is read, returns the clipboard's text as `clipboard`; files copied in
+  > Finder don't count as text. `PopupWindowController.showPalette(for:alternate:pasteAvailable:)`
+  > keeps the other source in `paletteAlternateContext`. Tab (when both were read) or a click on
+  > the switch calls `switchPaletteSource(keeping:)`, which re-shows the palette on the other
+  > context — so actions, Copy/Cut availability and inline results follow the text — and seeds
+  > the new palette's query through `PopupModeStore.paletteSeedQuery`.
   > Moves go through `placeSpotlight`, which suspends `horizontalAnchor` — otherwise
   > `PopupPanel.setFrame` keeps the previous frame's midX, and AI / loading results (re-shown as a
   > bar at the cursor first) would open off-center. With no action bar to collapse to, the card's

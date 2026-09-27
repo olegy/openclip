@@ -696,5 +696,9 @@
   "Moderate": "Modéré",
   "Default": "Par défaut",
   "Wide": "Large",
-  "Maximum": "Maximum"
+  "Maximum": "Maximum",
+  "No text": "Aucun texte",
+  "Selection": "Sélection",
+  "Clipboard": "Presse-papiers",
+  "Text source": "Source du texte"
 }

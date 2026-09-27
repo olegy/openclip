@@ -91,6 +91,8 @@ public struct PopupView: View {
     public let onShowTooltip: (@MainActor (String, CGRect, String, Bool) -> Void)?
     /// Hides the screen-space hover tooltip.
     public let onHideTooltip: (@MainActor () -> Void)?
+    /// Fork: switches the palette to its other text source, keeping the typed query.
+    public let onSwitchPaletteSource: (@MainActor (String) -> Void)?
     /// True when this is a static preview — hover tracking is disabled entirely so the
     /// preview never reacts to (or leaks into) the real popup's shared hover state.
     private let isStatic: Bool
@@ -205,7 +207,8 @@ public struct PopupView: View {
         onCancelFollowUp: (@MainActor () -> Void)? = nil,
         onClickIntent: @escaping @MainActor () -> ActionResultDelivery.ClickIntent = { .primary },
         onShowTooltip: (@MainActor (String, CGRect, String, Bool) -> Void)? = nil,
-        onHideTooltip: (@MainActor () -> Void)? = nil
+        onHideTooltip: (@MainActor () -> Void)? = nil,
+        onSwitchPaletteSource: (@MainActor (String) -> Void)? = nil
     ) {
         self.actions = actions
         self.allActions = allActions ?? actions
@@ -238,6 +241,7 @@ public struct PopupView: View {
         self.onClickIntent = onClickIntent
         self.onShowTooltip = onShowTooltip
         self.onHideTooltip = onHideTooltip
+        self.onSwitchPaletteSource = onSwitchPaletteSource
         self.isStatic = isStatic
         self.hoverState = hoverState
         self.presenter = presenter
@@ -613,7 +617,8 @@ public struct PopupView: View {
             onActionPerformed: onActionPerformed,
             onWillPerformAction: onWillPerformAction,
             onRunLoadingAction: onRunLoadingAction,
-            onClickIntent: onClickIntent
+            onClickIntent: onClickIntent,
+            onSwitchSource: onSwitchPaletteSource
         )
         .environment(\.colorScheme, effectiveColorScheme)
         .environment(\.popupEffectiveTheme, effectiveTheme)
