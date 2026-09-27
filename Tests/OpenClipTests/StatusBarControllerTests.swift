@@ -130,7 +130,7 @@ final class StatusBarControllerTests: XCTestCase {
 
         // Initially Safari is not disabled
         controller.updateRootMenuDynamicItems()
-        XCTAssertEqual(controller.pauseAppItem?.isHidden, false)
+        XCTAssertEqual(controller.pauseAppItem?.isHidden, !ForkBehavior.pauseMenuItems)
         XCTAssertEqual(controller.pauseAppItem?.state, .off)
         XCTAssertEqual(controller.pauseAppItem?.title, "Pause in Safari")
         XCTAssertNil(controller.pauseAppItem?.image)

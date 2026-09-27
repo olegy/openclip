@@ -159,9 +159,12 @@ class StatusBarController: NSObject, NSMenuDelegate {
 
         let pauseParent = NSMenuItem(title: String(localized: "Pause"), action: nil, keyEquivalent: "")
         pauseParent.submenu = pauseMenu
+        pauseParent.isHidden = !ForkBehavior.pauseMenuItems
         menu.addItem(pauseParent)
         
-        menu.addItem(NSMenuItem.separator())
+        let stateSeparator = NSMenuItem.separator()
+        stateSeparator.isHidden = !ForkBehavior.pauseMenuItems
+        menu.addItem(stateSeparator)
 
         // Section 2: Core App Navigation
         let prefsItem = menuItem(title: String(localized: "Settings…"), action: #selector(showPreferences as () -> Void), keyEquivalent: ",")
@@ -354,7 +357,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
             let policy = RuleEngine.shared.resolvePolicies(for: bundleID)
             let isAppDisabled = policy.disabled
 
-            pauseAppItem?.isHidden = false
+            pauseAppItem?.isHidden = !ForkBehavior.pauseMenuItems
             if isAppDisabled {
                 pauseAppItem?.title = String(localized: "Paused in \(appName)")
                 pauseAppItem?.state = .on

@@ -22,6 +22,26 @@ final class ForkBehaviorTests: XCTestCase {
         XCTAssertEqual(controller.toggleEnabledItem?.isHidden, true)
     }
 
+    /// The hotkey is pressed on purpose, so the menu bar menu offers no "Pause in <App>" or timed
+    /// "Pause" items. "Resume OpenClip" still appears while a pause is active.
+    func testPauseMenuItemsAreHiddenButResumeStillShows() throws {
+        XCTAssertFalse(ForkBehavior.pauseMenuItems)
+
+        let store = MemorySettingsStore()
+        store.set(.showMenuBarIcon, value: true)
+        let controller = StatusBarController(settingsStore: store)
+        controller.currentTargetApp = NSRunningApplication.current
+        controller.updateRootMenuDynamicItems()
+        XCTAssertEqual(controller.pauseAppItem?.isHidden, true)
+        let pauseSubmenu = try XCTUnwrap(controller.pauseSubmenu)
+        let pauseParent = controller.pauseAppItem?.menu?.items.first { $0.submenu === pauseSubmenu }
+        XCTAssertEqual(pauseParent?.isHidden, true)
+
+        store.set(.pauseUntilTimestamp, value: Date().timeIntervalSince1970 + 1800)
+        controller.updateRootMenuDynamicItems()
+        XCTAssertEqual(controller.resumeItem?.isHidden, false)
+    }
+
     /// An AI or loading result re-shows the popup as a bar at the cursor before its card appears.
     /// The card must still land Spotlight-style at the palette's size — `PopupPanel`'s center
     /// anchor used to keep the bar's midX, so the card opened off-center near the cursor.

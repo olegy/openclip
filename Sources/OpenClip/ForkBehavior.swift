@@ -18,6 +18,12 @@ enum ForkBehavior {
     /// middle of the screen with the mouse — and gives the card the palette's size. The loading
     /// toast centers on the palette's frame, so it follows.
     static let spotlightPlacement = true
+
+    /// Upstream's menu bar menu offers "Pause in <App>" and a timed "Pause" submenu, which made
+    /// sense for the automatic popup. The fork only acts when you press the hotkey, so both are
+    /// hidden. Pausing itself still works: "Resume OpenClip" still appears while a pause set
+    /// earlier or via `openclip://command/pause` is active, and per-app rules stay in Settings.
+    static let pauseMenuItems = false
 }
 
 extension View {
