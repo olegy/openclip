@@ -24,6 +24,10 @@ enum ForkBehavior {
     /// hidden. Pausing itself still works: "Resume OpenClip" still appears while a pause set
     /// earlier or via `openclip://command/pause` is active, and per-app rules stay in Settings.
     static let pauseMenuItems = false
+
+    /// Upstream's menu bar menu links "Report Issue…" to upstream's issue tracker. The fork hides
+    /// it there; Settings → About still has it.
+    static let reportIssueMenuItem = false
 }
 
 extension View {

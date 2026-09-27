@@ -187,9 +187,13 @@ class StatusBarController: NSObject, NSMenuDelegate {
         self.updateMenuItem = updateItem
         updateUpdateMenuItem(version: AppUpdateManager.shared.availableUpdateVersion)
 
-        menu.addItem(menuItem(title: String(localized: "Report Issue…"), action: #selector(openReportIssue)))
+        let reportItem = menuItem(title: String(localized: "Report Issue…"), action: #selector(openReportIssue))
+        reportItem.isHidden = !ForkBehavior.reportIssueMenuItem
+        menu.addItem(reportItem)
 
-        menu.addItem(NSMenuItem.separator())
+        let supportSeparator = NSMenuItem.separator()
+        supportSeparator.isHidden = updateItem.isHidden && reportItem.isHidden
+        menu.addItem(supportSeparator)
         
         // Section 4: Lifecycle
         let quitItem = NSMenuItem(title: String(localized: "Quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")

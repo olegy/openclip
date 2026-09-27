@@ -42,6 +42,26 @@ final class ForkBehaviorTests: XCTestCase {
         XCTAssertEqual(controller.resumeItem?.isHidden, false)
     }
 
+    /// "Report Issue…" leads to upstream's tracker, so the menu bar menu hides it (Settings →
+    /// About keeps it), and no empty section is left behind it.
+    func testReportIssueMenuItemIsHidden() throws {
+        XCTAssertFalse(ForkBehavior.reportIssueMenuItem)
+
+        let store = MemorySettingsStore()
+        store.set(.showMenuBarIcon, value: true)
+        let controller = StatusBarController(settingsStore: store)
+        let menu = try XCTUnwrap(controller.pauseAppItem?.menu)
+        let reportItem = try XCTUnwrap(menu.items.first { $0.title.hasPrefix("Report Issue") })
+        XCTAssertTrue(reportItem.isHidden)
+
+        let visible = menu.items.filter { !$0.isHidden }
+        XCTAssertFalse(visible.first?.isSeparatorItem ?? true)
+        XCTAssertFalse(visible.last?.isSeparatorItem ?? true)
+        for (above, below) in zip(visible, visible.dropFirst()) {
+            XCTAssertFalse(above.isSeparatorItem && below.isSeparatorItem, "adjacent visible separators")
+        }
+    }
+
     /// An AI or loading result re-shows the popup as a bar at the cursor before its card appears.
     /// The card must still land Spotlight-style at the palette's size — `PopupPanel`'s center
     /// anchor used to keep the bar's midX, so the card opened off-center near the cursor.
