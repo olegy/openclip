@@ -15,6 +15,8 @@ This repository is a personal fork of [ganeshmshetty/openclip](https://github.co
 - **Signing without a Team ID** (ad-hoc or a local self-signed certificate) leaves out the hardened runtime — see Build & test.
 - **Nothing happens until a hotkey fires.** The palette hotkey reads the selection on demand (`HotkeyManager.resolvePaletteTrigger`), and passive selection monitoring is off (`ForkBehavior.passiveSelectionMonitoring`; `MacSelectionMonitor` is kept but never started, and its settings are hidden). `ForkBehaviorTests` guards it. The action bar is still in the code (removal pending); `docs/architecture/text-selection.md` marks where it describes upstream behavior.
 
+Syncing with upstream: `./scripts/fork_sync.sh report` before merging (what upstream brings, trial-merge conflicts, fork hot spots, OpenSelection changes), `./scripts/fork_sync.sh verify` after (fork invariants, tests against the known-failures baseline).
+
 Keep diffs merge-friendly: change as little upstream code as possible, prefer configuration over deleting code, and don't re-indent or reformat untouched blocks.
 
 ## Build & test
