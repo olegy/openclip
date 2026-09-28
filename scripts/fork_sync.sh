@@ -2,9 +2,11 @@
 # Fork-only helper for syncing this fork with upstream (ganeshmshetty/openclip).
 # Usage:
 #   ./scripts/fork_sync.sh report [<upstream-ref>]   before merging: what upstream brings, what it touches
+#   ./scripts/fork_sync.sh resolve                    mid-merge: settle the routine version/project conflicts
 #   ./scripts/fork_sync.sh verify [--runs N]          after merging: fork invariants + tests vs baseline
 #
-# It does not merge or resolve conflicts: that needs judgment. `report` only reads (git fetch plus a
+# It does not merge, and `resolve` only settles the conflicts that recur on every sync (the version in
+# project.yml, the generated project.pbxproj); code conflicts need judgment. `report` only reads (git fetch plus a
 # trial merge via `git merge-tree`, which leaves the working tree alone). `verify` regenerates the
 # Xcode project and the string catalog; it exits non-zero on a broken invariant or on a test that
 # fails in every run and is not in the known-failures baseline (docs/architecture/known-debt.md).
@@ -140,6 +142,58 @@ report() {
     fi
 }
 
+# Mid-merge: keep the fork's version lines in project.yml with upstream's new version, reset the mod
+# revision, and regenerate project.pbxproj. Anything else stays conflicted for the agent.
+resolve() {
+    git rev-parse -q --verify MERGE_HEAD >/dev/null || { echo "no merge in progress"; return 1; }
+    local new_version new_build
+    new_version="$(yml_value MERGE_HEAD MARKETING_VERSION)"
+    new_build="$(yml_value MERGE_HEAD CURRENT_PROJECT_VERSION)"
+    local conflicted
+    conflicted="$(git diff --name-only --diff-filter=U)"
+
+    if echo "$conflicted" | grep -qx project.yml; then
+        NEW_VERSION="$new_version" NEW_BUILD="$new_build" python3 - <<'PY'
+import os, re
+path = "project.yml"
+text = open(path).read()
+block = re.compile(r"<<<<<<< [^\n]*\n(.*?)(?:\|\|\|\|\|\|\| [^\n]*\n.*?)?=======\n.*?>>>>>>> [^\n]*\n", re.S)
+# Only the conflict that holds the fork's version lines is ours to settle.
+text = block.sub(lambda m: m.group(1) if "OPENCLIP_MOD_REVISION" in m.group(1) else m.group(0), text)
+version, build = os.environ["NEW_VERSION"], os.environ["NEW_BUILD"]
+text = re.sub(r'(MARKETING_VERSION: ")[^+"]*(\+mod\.)', r"\g<1>%s\g<2>" % version, text)
+text = re.sub(r'(OPENCLIP_MOD_REVISION: )"\d+"', r'\1"1"', text)
+text = re.sub(r'(CURRENT_PROJECT_VERSION: )"\d+"', r'\1"%s"' % build, text)
+text = re.sub(r"(e\.g\. )[0-9.]+(\+mod\.1)", r"\g<1>%s\2" % version, text)
+open(path, "w").write(text)
+PY
+        if grep -qE '^(<<<<<<<|>>>>>>>) ' project.yml; then
+            echo "project.yml: version settled, other conflicts left for you"
+        else
+            git add project.yml
+            echo "project.yml: resolved -> $new_version+mod.1 (build $new_build)"
+        fi
+    fi
+
+    if echo "$conflicted" | grep -qx OpenClip.xcodeproj/project.pbxproj; then
+        git checkout --theirs OpenClip.xcodeproj/project.pbxproj
+        xcodegen generate --quiet
+        git add OpenClip.xcodeproj/project.pbxproj
+        echo "project.pbxproj: regenerated from project.yml"
+    fi
+
+    # The AGENTS.md fork section cites the current version as an example.
+    sed -i '' -E "s/\(e\.g\. \`[0-9.]+\+mod\.2\`\)/(e.g. \`$new_version+mod.2\`)/" AGENTS.md
+
+    local left
+    left="$(git diff --name-only --diff-filter=U)"
+    if [ -n "$left" ]; then
+        echo; echo "still conflicted (resolve by hand, see the runbook):"; echo "$left" | sed 's/^/  /'
+    else
+        echo; echo "no conflicts left — run: ./scripts/fork_sync.sh verify"
+    fi
+}
+
 # Test names listed under "Known failures" in known-debt.md, as Class.test.
 baseline_failures() {
     sed -n '/Known failures/,/^- \*\*Removed/p' "$KNOWN_DEBT" \
@@ -231,6 +285,7 @@ verify() {
 
 case "${1:-}" in
     report) shift; report "$@" ;;
+    resolve) shift; resolve "$@" ;;
     verify) shift; verify "$@" ;;
-    *) sed -n '2,5p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+    *) sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
