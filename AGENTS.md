@@ -1,13 +1,13 @@
 # AGENTS.md
 
-OpenClip is a macOS floating-popup utility (Swift 6, macOS 14+, AppKit + SwiftUI) that turns selected text into actions.
+OpenClip is a macOS floating-popup utility (Swift 6, macOS 14+, AppKit + SwiftUI) that turns selected text into actions. The repository is the app plus a Swift test target. The Next.js marketing site and the extension-catalog repo are **separate repositories** that are gitignored here — see "Repositories" below, because both are commonly mistaken for part of this one.
 
 ## This is a fork
 
 This repository is a personal fork of [ganeshmshetty/openclip](https://github.com/ganeshmshetty/openclip) (`origin` = the fork, `upstream` = the original). Differences from upstream:
 
 - **Auto-updates are off.** `project.yml` ships no `SUFeedURL` / `SUPublicEDKey`, so `AppUpdateManager.isEnabled` is false, Sparkle is never started, and the update UI is hidden. Never restore upstream's feed or key: Sparkle would replace this build with an upstream release. `AppUpdateManagerTests.testBuildShipsNoUpdateFeedAndHidesUpdateUI` guards it.
-- **Version** is `MARKETING_VERSION` = upstream's version plus `+mod.$(OPENCLIP_MOD_REVISION)` (e.g. `1.6.2+mod.2`). Bump the revision for each build installed with new changes; reset it to 1 when syncing a new upstream version.
+- **Version** is `MARKETING_VERSION` = upstream's version plus `+mod.$(OPENCLIP_MOD_REVISION)` (e.g. `1.7.0+mod.2`). Bump the revision for each build installed with new changes; reset it to 1 when syncing a new upstream version.
 - **Spotlight-style palette.** The search palette and the result card open centered (slightly above the middle) on the mouse's screen at a fixed 680 × 414 pt (`ForkBehavior.spotlightPlacement`, `PopupPositioner.spotlightFrame`, `PopupMetrics`).
 - **No pause or Report Issue items in the menu bar menu.** "Pause in <App>" and the timed "Pause" submenu are hidden (`ForkBehavior.pauseMenuItems`); pausing still works, and "Resume OpenClip" still appears while a pause is active. "Report Issue…" is hidden too (`ForkBehavior.reportIssueMenuItem`); Settings → About keeps it.
 - **Palette footer shows the text source.** The palette reads both the selection and the clipboard; the footer shows a selection/clipboard switch (Tab toggles it) and the start of the text instead of the action count (`ForkBehavior.paletteSourceFooter`, `PaletteSourceFooter`, `PopupWindowController+PaletteSource.swift`).
@@ -72,6 +72,21 @@ tail -f ~/Library/Logs/OpenClip/openclip.log
 "<app>/Contents/MacOS/OpenClip" --dump-logs --category=extensions --level=error
 ```
 
+## Repositories
+
+Three codebases, and only one of them is this repository. `git ls-files` is the fastest way to
+remember which is which — anything it does not list is not committable here.
+
+| Path | What it actually is |
+| :--- | :--- |
+| `Sources/`, `Tests/`, `scripts/`, `docs/` | **This repository.** The app, its tests, and the contributor tooling. |
+| `Extensions/` | A **separate local clone** of the extension catalog (`openclip-extensions`), with its own remote and history. Not a git submodule — there is no `.gitmodules` — and gitignored here, so nothing under it can be committed to `openclip`. |
+| `web/` | The Next.js marketing site. Also a separate checkout, gitignored. `web/AGENTS.md` is its own agent contract. |
+
+The practical consequence: an app change goes in this repository; an extension change and any
+website change both go to their own repositories. `git submodule update --init` is a no-op here —
+if you author extensions, clone the catalog into `Extensions/` yourself.
+
 ## Extensions
 
 The **authoritative manifest / JS-bridge spec is `Extensions/AGENTS.md`** (present once the catalog is cloned, see Build & test) — read it before touching anything extension-related. Don't invent manifest keys (unknown keys are ignored; unknown `type` strings reject the whole package). Extensions live in `~/.openclip/extensions`, scanned at startup (~2 s hot reload if running).
@@ -82,7 +97,8 @@ The **authoritative manifest / JS-bridge spec is `Extensions/AGENTS.md`** (prese
 ./Extensions/scripts/install.sh <path>                                  # validates, then installs to ~/.openclip/extensions
 ```
 
-`Extensions/` is not tracked in this repo: it is a gitignored checkout of the openclip-extensions catalog, so scaffolded extensions under `Extensions/raw/` get committed to that repo.
+`Extensions/raw/` sits inside the catalog clone, so scaffolded extensions are committed to
+`openclip-extensions` — never to this repository.
 
 ## Tests
  
