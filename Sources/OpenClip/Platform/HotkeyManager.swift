@@ -347,11 +347,17 @@ public final class HotkeyManager {
     /// Default `selectionReader`: one OpenSelection retrieval with the copy fallback allowed
     /// unless a foreign overlay (e.g. a screenshot tool) sits under the cursor.
     private static func readSelection(_ app: AppIdentity, _ policy: AppPolicyContext) async -> TextResult? {
-        await SelectionRetrievalCoordinator().retrieveDetails(
+        // Fork: a collapsed caret in a text control means nothing is selected; no ⌘C.
+        var caretCollapsed = false
+        if ForkBehavior.collapsedCaretSkipsCopy, let role = await CollapsedCaretProbe.collapsedCaretRole() {
+            Log.selection.debug("palette: collapsed caret in \(role, privacy: .public) of \(app.bundleIdentifier ?? "unknown", privacy: .public); skipping copy fallback")
+            caretCollapsed = true
+        }
+        return await SelectionRetrievalCoordinator().retrieveDetails(
             for: app,
             policy: policy,
             cursor: CursorClassifier.current.asCore,
-            allowCopyFallback: !CopyTriggerGate.isForeignOverlayPresent(at: NSEvent.mouseLocation),
+            allowCopyFallback: !caretCollapsed && !CopyTriggerGate.isForeignOverlayPresent(at: NSEvent.mouseLocation),
             requireCopyEvidence: false
         ).result
     }

@@ -39,6 +39,12 @@ enum ForkBehavior {
     /// only when set (`PaletteRowAccessories`). An inline preview still covers them until ⌘ is
     /// held, and is twice as wide (`PopupMetrics.inlineSearchAccessoryMaxWidth`).
     static let paletteRowAccessories = true
+
+    /// Upstream sends the palette hotkey's synthetic ⌘C whenever AX has no selected text. Editors
+    /// such as Obsidian then copy the whole current line, which the palette takes for the
+    /// selection. The fork sends no ⌘C when the focused text control reports a collapsed caret
+    /// (`CollapsedCaretProbe`), so the palette falls through to the clipboard.
+    static let collapsedCaretSkipsCopy = true
 }
 
 extension View {

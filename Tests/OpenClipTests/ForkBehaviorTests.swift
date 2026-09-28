@@ -92,4 +92,22 @@ final class ForkBehaviorTests: XCTestCase {
         XCTAssertEqual(controller.modeStore.resultCardSize,
                        CGSize(width: PopupMetrics.searchPanelContentWidth, height: PopupMetrics.searchPaletteMinHeight))
     }
+
+    /// A caret with nothing selected in a text control sends no ⌘C: editors such as Obsidian
+    /// would copy the whole current line. Anything else — a selection, a non-text element, or
+    /// no range at all — keeps the copy fallback.
+    func testCollapsedCaretInTextControlSkipsCopy() {
+        XCTAssertTrue(ForkBehavior.collapsedCaretSkipsCopy)
+
+        let caret = CFRange(location: 617, length: 0)
+        XCTAssertTrue(CollapsedCaretProbe.isCollapsedCaret(role: "AXTextArea", selectedRange: caret, selectedText: ""))
+        XCTAssertTrue(CollapsedCaretProbe.isCollapsedCaret(role: "AXTextField", selectedRange: caret, selectedText: nil))
+
+        XCTAssertFalse(CollapsedCaretProbe.isCollapsedCaret(
+            role: "AXTextArea", selectedRange: CFRange(location: 379, length: 8), selectedText: "dropdown"))
+        XCTAssertFalse(CollapsedCaretProbe.isCollapsedCaret(role: "AXTextArea", selectedRange: caret, selectedText: "stale"))
+        XCTAssertFalse(CollapsedCaretProbe.isCollapsedCaret(role: "AXTextArea", selectedRange: nil, selectedText: nil))
+        XCTAssertFalse(CollapsedCaretProbe.isCollapsedCaret(role: "AXGroup", selectedRange: caret, selectedText: nil))
+        XCTAssertFalse(CollapsedCaretProbe.isCollapsedCaret(role: nil, selectedRange: caret, selectedText: nil))
+    }
 }
