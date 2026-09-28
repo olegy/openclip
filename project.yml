@@ -46,13 +46,13 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        # Fork: upstream's version plus semver build metadata, e.g. 1.7.0+mod.1. Xcode takes
+        # Fork: upstream's version plus semver build metadata, e.g. 1.7.1+mod.1. Xcode takes
         # CFBundleShortVersionString from MARKETING_VERSION itself (the INFOPLIST_KEY_ line below
         # has no effect), so the suffix has to live here. SemanticVersion ignores it, so extension
         # minOpenClipVersion checks still compare against upstream's triplet.
         OPENCLIP_MOD_REVISION: "1"
-        MARKETING_VERSION: "1.7.0+mod.$(OPENCLIP_MOD_REVISION)"
-        CURRENT_PROJECT_VERSION: "16"
+        MARKETING_VERSION: "1.7.1+mod.$(OPENCLIP_MOD_REVISION)"
+        CURRENT_PROJECT_VERSION: "17"
         INFOPLIST_KEY_CFBundleShortVersionString: $(MARKETING_VERSION)
         INFOPLIST_KEY_CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -90,7 +90,7 @@ targets:
 packages:
   OpenSelection:
     url: https://github.com/ganeshmshetty/OpenSelection
-    exactVersion: 0.2.9
+    exactVersion: 0.2.8
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     from: 3.1.0
