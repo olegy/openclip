@@ -4,6 +4,131 @@ All notable user-facing changes to OpenClip.
 
 ---
 
+## v1.8.2 - 2026-10-12
+
+### Features & Improvements
+- **Removed modifier key triggers**: Reverted modifier key selection triggers to ensure 100% reliable popup appearance across all apps, restoring the direct "Appear Automatically" toggle.
+- **OCR auto-copy setting**: Added a "Copy to Clipboard Automatically" setting under **General ▸ Shortcuts** with cursor status feedback.
+- **Script action options in env**: Exposed custom script options to child processes via `OPENCLIP_OPTION_<NAME>`.
+- **Popup paging & UI polish**: Added fit-to-width paging and refined count stepper in glass theme.
+
+### Fixes & Stability
+- **Fixed JS extension memory leaks (#46, #47)**: Prevented the fetch bridge from retaining `JSContext` and per-run `URLSession` instances.
+- **Calculator bounds & safety (#50)**: Bounded recursion depth in `MathEvaluator` and safely rejected overflowing inputs.
+- **AI stream cancellation (#43)**: Correctly surfaced stream cancellations for Cloud and Local AI actions.
+- **AI key persistence (#42)**: Prevented recursion on API key save failures.
+- **Classic card shadow clipping**: Added rasterization padding to prevent shadow buffer clipping on promoted AppKit layers.
+- **Toast placement & Spaces**: Fixed status toasts to prefer placement above cursor and bars, and enabled them across fullscreen Spaces.
+- **Loading pill shadow**: Reserved insets to eliminate shadow clipping on cancellable loading pills.
+- **Update reminders**: Added reliable menu bar update badges and reminders.
+
+---
+
+## v1.8.1 - 2026-10-09
+
+### Features & Improvements
+- **Automatic extension updates**: Store-installed extensions update at launch and every six hours while OpenClip is running. Control this with the new **About → Extension Updates → Automatically Update Extensions** toggle, enabled by default. Disabled extensions stay disabled, and developer and sideloaded packages are excluded.
+- **Extension store improvements**: The New section uses first-publish dates, the store displays the full catalogue total, and search and update lifecycle handling are improved.
+- **Task-focused AI prompts**: AI actions follow the selected task more closely, including translation, code fixes, and editing.
+- **Simpler update preferences**: Software updates use the stable channel with streamlined About settings.
+- Added Android emulators to the app exclusion filter and moved Ghostty to menu-based copy handling.
+
+### Fixes & Stability
+- Fixed group and AI Tools sub-bars failing to open when delayed SwiftUI hover events cancelled the opening timer. Hover tracking now uses a shared target-transition handler.
+- Restored popup hover highlights, tooltips, and sub-bars over other apps' fullscreen Spaces.
+
+### Contributors
+Thanks to @deskangel for improving Ghostty copy handling and adding Android emulator exclusions!
+
+---
+
+## v1.8.0 - 2026-10-07
+
+### Features & Improvements
+- **Modifier-held selection triggers**: Trigger popup actions conditionally by holding modifier keys (⌘, ⌥, ⇧, ⌃, or fn) while making text selections, allowing quick contextual actions without cluttering normal text selection.
+- **Standalone AI actions on popup bar**: Place custom AI actions directly on the main popup bar alongside standard actions for instant one-click access.
+- **Command Palette toggle**: Choose whether to display the command palette (⌘) button at the end of the popup bar under **Customize → Behavior**, while retaining the keyboard shortcut (⌥⌘C).
+- **Screen text capture (OCR)**: Draw a region on screen to capture text using ScreenCaptureKit; the selected text feeds directly into the popup action bar.
+- **Direct extension bundle installation**: Support drag-and-drop and double-click installation of `.openclipext` bundles directly.
+- **Contextual pill placement**: Choose automatic, left, or right placement for the contextual pill, defaulting to Auto.
+- **Rule matching by process name and path**: Target apps without bundle identifiers using their process name or executable path.
+- **Customize polish**: Inline renaming, AI preset deletion, and drag-and-drop polish in the action editor.
+- **UI & accessibility polish**: Larger popup bar metrics with 15 pt labels, refined hover highlights, contextual action and command palette controls in Settings, polished button styling, and unified menu bar status layout.
+
+### Fixes & Stability
+- Hardened selection and clipboard delivery across macOS apps with correlated diagnostics.
+- Improved popup eligibility in other apps' fullscreen Spaces. A popup detected outside the active Space now gets one fresh-panel recovery attempt while its source app remains frontmost.
+- Restored AI group visibility and preset round trips so group membership behaves consistently.
+- Reliable screen-capture crosshair cursor over the selection overlay.
+- Updated OpenSelection to 2.15.3 to bound Accessibility inspection and menu traversal workers during stalled app responses.
+- Retained trace-linked placement and recovery diagnostics while reducing routine selection log noise.
+- Enhanced search palette layout, context indicators, and row interactions.
+
+### Contributors
+Thanks to @iiHawe, @deskangel, @md786-dotcom, and @vynexor for their contributions to this release! ([#128](https://github.com/ganeshmshetty/openclip/pull/128), [#134](https://github.com/ganeshmshetty/openclip/pull/134), [#135](https://github.com/ganeshmshetty/openclip/pull/135), [#138](https://github.com/ganeshmshetty/openclip/pull/138), [#141](https://github.com/ganeshmshetty/openclip/pull/141), [#143](https://github.com/ganeshmshetty/openclip/pull/143))
+
+---
+
+## v1.8.0-beta.1 - 2026-10-03
+
+### Features & Improvements
+- **Modifier-held selection triggers**: Trigger popup actions conditionally by holding modifier keys (⌘, ⌥, ⇧, ⌃, or fn) while making text selections, allowing quick contextual actions without cluttering normal text selection.
+- **Standalone AI actions on popup bar**: Place custom AI actions directly on the main popup bar alongside standard actions for instant one-click access.
+- **Command Palette toggle**: Choose whether to display the command palette (⌘) button at the end of the popup bar under **Customize → Behavior**, while retaining the keyboard shortcut (⌥⌘C).
+- **Screen text capture (OCR)**: Draw a region on screen to capture text using ScreenCaptureKit; the selected text feeds directly into the popup action bar.
+- **Direct extension bundle installation**: Support drag-and-drop and double-click installation of `.openclipext` bundles directly.
+- **UI & accessibility polish**: Refined contextual action and command palette controls in Settings, polished button styling, and unified menu bar status layout.
+
+### Fixes & Stability
+- Hardened selection and clipboard delivery across macOS apps with correlated diagnostics.
+- Enhanced search palette layout, context indicators, and row interactions.
+
+### Contributors
+Thanks to @iiHawe for their contributions to this release! ([#134](https://github.com/ganeshmshetty/openclip/pull/134), [#135](https://github.com/ganeshmshetty/openclip/pull/135))
+
+---
+
+## v1.7.3 - 2026-10-02
+
+### Features & Improvements
+- **Popup controls**: Refined search and result-card buttons with compact spacing, consistent corners, and native Liquid Glass controls on macOS 26 when using the glass theme. Removed the search footer's action count.
+- **Draggable search**: Move the search palette by dragging its search icon or header edges; the action bar retains the new position when leaving search.
+- **Action editor**: Colored outline icons for appearance, triggers, and output settings, with descriptions available through hover-revealed info popovers.
+- **Collapsible preferences sidebar**: Actions and Installed sections remember their expanded state. Searching reveals matching entries automatically.
+- **Update release notes**: The About tab shows notes in a dedicated popover with support for Markdown, HTML, and plain text.
+
+### Fixes & Stability
+- Fixed action and extension ordering across reloads and availability changes, and improved toggle updates and group enablement in Preferences.
+- Fixed removing a duplicated extension accidentally removing its original package.
+- Improved global action hotkey selection capture, copy fallback, and trigger checks.
+- Improved cloud AI model fetching when editing credentials or leaving its settings page.
+- Corrected Sparkle's install-on-quit delegate callback and replaced deprecated browser-opening APIs.
+- Updated OpenSelection to v2.15.1, with cursor-buffer safety and stricter AX inspection concurrency limits.
+
+### Developer Tooling
+- Debug builds now use a separate OpenClip Dev identity, with Accessibility recovery targeting the running app.
+- Development runs show structured build, install, and launch progress, with grouped warnings and `--verbose` for complete output.
+- Tests show progress grouped by test class, concise results, and relevant failures; `--verbose` provides the full log.
+
+---
+
+## v1.7.2 - 2026-09-30
+
+### Features & Improvements
+- **Popup pagination**: Choose how many actions appear per page, from 2 to 12; the contextual action island no longer reduces the main bar's page size.
+- **Extension Store**: Browse the catalog as **All**, **Popular**, or **New**. New releases can also appear in the Featured showcase, and updates fill out the New preview when needed.
+- **Selection reliability**: Hardened selection and inline-result capture with editability checks, shared gesture guards, and richer diagnostics in OpenClip's logs. OpenClip now uses OpenSelection 2.15.0; this is a dependency update, not an OpenSelection release.
+- **Accessibility permissions**: Opening Accessibility settings no longer resets macOS permission state. TCC reset is reserved for the explicit recovery action.
+- **Appearance preview**: The popup preview keeps a stable viewport as its width and page size change, and its sample icons stay independent of personal action customizations.
+
+### Fixes & Stability
+- Fixed action and extension enablement staying out of sync between the editor and toolbar.
+- Fixed selection action icons when the popup is configured to show action titles as text.
+- Fixed settings window width feedback from the Actions outline view.
+- Improved selection safety around window gestures, weak Accessibility evidence, and inline results.
+
+---
+
 ## v1.7.1 - 2026-09-28
 
 ### Fixes & Improvements
@@ -188,7 +313,7 @@ Thanks to @md786-dotcom and @vynexor for their contributions to this release!
 - Release notes in update prompts; settings preserved across updates.
 
 ### Community
-- Join our [Discord community](https://discord.gg/sy4MeFxf8).
+- Join our [Discord community](https://discord.gg/acYYdzM7jR).
 
 ---
 

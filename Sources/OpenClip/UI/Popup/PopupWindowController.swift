@@ -21,14 +21,15 @@ import Core
 @MainActor
 public class PopupWindowController {
     var panel: PopupPanel?
+    // Separate from the AI session: re-shows can preserve that session but must invalidate
+    // pending Space recovery from an earlier presentation.
+    private(set) var presentationAttemptID = UUID()
+    private var didAttemptSpaceRecovery = false
     private var globalEventMonitor: Any?
     private var localEventMonitor: Any?
     private var currentContext: SelectionContext?
     public var sourceAppBundleID: String? { currentContext?.sourceApp.bundleIdentifier }
     var currentActionContext: ActionContext?
-    /// Fork: the palette's other text source (the clipboard while the selection is shown, or the
-    /// reverse); nil when only one was read. See `PopupWindowController+PaletteSource.swift`.
-    var paletteAlternateContext: SelectionContext?
     private var cardAbove = false
     /// Popup display mode (actions bar ↔ search palette ↔ result card), observed by PopupView.
     public let modeStore = PopupModeStore()
@@ -112,6 +113,11 @@ public class PopupWindowController {
     /// The floating toast surface for statuses and the paste→copy "Copied" notice. Independent of
     /// the popup panel: it shows whether the popup is up or has already hidden. Injected for tests.
     let toastController: ToastPanelController
+    private var captureToastPresentationID: UUID?
+    private var isCaptureToastCurrent: Bool {
+        guard let captureToastPresentationID else { return false }
+        return toastController.presentationID == captureToastPresentationID
+    }
 
     /// The standalone floating panel hosting group sub-actions and AI tool presets.
     public let subBarController: SubBarPanelController
@@ -160,6 +166,7 @@ public class PopupWindowController {
     /// interacting with that surface doesn't tear down the popup. Re-evaluated per handled result
     /// and cleared when the session ends or a new one starts.
     private var isScrollDismissalSuspended = false
+    private var distanceDismissGraceUntil: TimeInterval?
 
     public init(resultHandler: ActionResultHandler = DefaultActionResultHandler(),
                  pasteProbe: PasteAvailabilityProbing = PasteAvailabilityProbe(),
@@ -177,7 +184,13 @@ public class PopupWindowController {
         self.subBarController.onDismiss = { [weak self] in
             self?.modeStore.isSubBarActive = false
             self?.modeStore.activeSubGroupID = nil
+            self?.updateToastPlacement()
         }
+
+        // The sub-bar's own `NSTrackingArea` feeds hover when the event monitors can't see the
+        // pointer (inactive app over another app's fullscreen Space). Route it through the same
+        // pipeline the `.mouseMoved` monitor path uses.
+        self.subBarController.onTrackingMouseMoved = { [weak self] in self?.handleTrackingMouseMoved() }
 
         modeStore.$isSubBarActive.sink { [weak self] _ in
             guard let self, let panel = self.panel else { return }
@@ -199,11 +212,14 @@ public class PopupWindowController {
         }
     }
 
-    public func show(for context: SelectionContext, pasteAvailable: Bool? = nil, initialMode: PopupMode = .actions) {
-        show(for: context, pasteAvailable: pasteAvailable, preservingSessionID: nil, streamingTask: nil, initialMode: initialMode)
+    public func show(for context: SelectionContext, pasteAvailable: Bool? = nil, initialMode: PopupMode = .actions, captureFeedback: StatusFeedback? = nil) {
+        show(for: context, pasteAvailable: pasteAvailable, preservingSessionID: nil, streamingTask: nil, initialMode: initialMode, captureFeedback: captureFeedback)
     }
 
-    func show(for context: SelectionContext, pasteAvailable: Bool?, preservingSessionID: UUID?, streamingTask: Task<Void, Never>?, initialMode: PopupMode = .actions) {
+    func show(for context: SelectionContext, pasteAvailable: Bool?, preservingSessionID: UUID?, streamingTask: Task<Void, Never>?, initialMode: PopupMode = .actions, captureFeedback: StatusFeedback? = nil) {
+        presentationAttemptID = UUID()
+        didAttemptSpaceRecovery = false
+        let attemptID = presentationAttemptID
         let evaluator = InlineResultEvaluator.shared
         let aiSession: UUID
         if let preservingSessionID {
@@ -223,8 +239,16 @@ public class PopupWindowController {
         }
 
         isMenuTracking = false
-        currentContext = context
+        let selectionContext = context.with(
+            pasteTargetAvailable: PasteAvailability.effective(policy: context.appPolicy, probe: pasteAvailable)
+        )
+        currentContext = selectionContext
+        if isCaptureToastCurrent { toastController.hide() }
+        captureToastPresentationID = nil
         sessionShowTime = ProcessInfo.processInfo.systemUptime
+        distanceDismissGraceUntil = context.source == .ocr
+            ? sessionShowTime + PopupMetrics.ocrArrivalDismissalGrace
+            : nil
 
         // The source app is frontmost when the popup shows; capture it once for the whole session.
         // Skip the capture while OpenClip itself is frontmost (e.g. a preference window, or a mid-
@@ -232,7 +256,7 @@ public class PopupWindowController {
         // source app. Search re-entry and content↔search hops must never re-capture, either.
         captureFrontmostAppIfNeeded()
 
-        let actionContext = ActionContext(selection: context, modifiers: [])
+        let actionContext = ActionContext(selection: selectionContext, modifiers: [])
         currentActionContext = actionContext
         let availableActions = ActionCoordinator.shared.resolveActions(for: actionContext)
 
@@ -309,9 +333,15 @@ public class PopupWindowController {
         }
 
         let rootView = PopupView(
+            settingsStore: settingsStore,
             actions: activeActions,
             allActions: activeActions,
             context: actionContext,
+            alternateSearchContext: alternateClipboardSearchContext(for: context),
+            onSearchContextChanged: { [weak self] selection in
+                self?.updateSearchContext(selection)
+            },
+            screenWidth: screenBounds.width,
             initialAICardAboveBar: cardAbove,
             modeStore: modeStore,
             sessionID: aiSession,
@@ -334,6 +364,7 @@ public class PopupWindowController {
             onContentSizeChange: { [weak self] size in
                 self?.resizePanel(to: size)
                 self?.keepPanelOnScreen()
+                self?.updateToastPlacement()
             },
             onAIStateChange: { [weak self] active, _ in
                 self?.setAIProcessing(active, session: aiSession)
@@ -363,7 +394,8 @@ public class PopupWindowController {
                 self?.usageStore.record(actionID)
             },
             onWillPerformAction: { [weak self] action, clickIntent in
-                guard let self else { return }
+                guard let self, let context = self.currentActionContext,
+                      self.canPerformAction(action, in: context) else { return false }
                 self.pendingDelivery = action.delivery
                 self.pendingActionTitle = action.title
                 self.pendingActionIcon = action.displayIcon(using: ActionCustomizationManager.shared)
@@ -371,6 +403,7 @@ public class PopupWindowController {
                 self.pendingActionRecommendedResult = action.chrome.recommendedResult
                 self.pendingActionOutputKind = action.chrome.outputKind
                 self.inFlightDeliveryContext = self.deliverySnapshot(for: action, clickIntent: clickIntent)
+                return true
             },
             onRunLoadingAction: { [weak self] action, clickIntent in
                 guard let self, let context = self.currentActionContext else { return }
@@ -399,14 +432,12 @@ public class PopupWindowController {
             },
             onHideTooltip: { [weak self] in
                 self?.tooltipController.hide()
-            },
-            onSwitchPaletteSource: { [weak self] query in
-                // Deferred: switching replaces the hosting view whose key/click handler is running.
-                DispatchQueue.main.async { self?.switchPaletteSource(keeping: query) }
             }
         )
         syncPanelAppearance(panel)
-        panel.contentView = PopupPanel.ContentView(rootView: rootView)
+        let hosting = PopupPanel.ContentView(rootView: rootView)
+        hosting.onMouseMoved = { [weak self] in self?.handleTrackingMouseMoved() }
+        panel.contentView = hosting
         panel.contentView?.layoutSubtreeIfNeeded()
         let size = sanitizedPopupSize(panel.contentView?.fittingSize)
 
@@ -433,11 +464,31 @@ public class PopupWindowController {
         // placed at its size; its later changes (the list shrinking as a query narrows) must keep
         // the field at the top fixed, so it is not pinned.
         panel.pinBottomEdgeOnResize = initialMode == .search ? false : cardAbove
+        if context.source == .ocr, let captureFeedback {
+            toastController.show(captureFeedback, anchorFrame: panel.frame, placement: .nearCursor(context.cursorPosition))
+            captureToastPresentationID = toastController.presentationID
+            updateToastPlacement()
+        }
         if NSClassFromString("XCTestCase") == nil {
             panel.orderFront(nil)
         }
         
         setupMonitors()
+        // Two bounded snapshots catch delayed AppKit hiding/Space changes without polling.
+        Task { @MainActor [weak self] in
+            for delay in [150_000_000, 600_000_000] {
+                try? await Task.sleep(nanoseconds: UInt64(delay))
+                guard let self, self.presentationAttemptID == attemptID, self.currentContext != nil else { return }
+                if delay == 150_000_000 {
+                    self.recoverPopupSpaceIfNeeded(for: attemptID,
+                        frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier)
+                } else if self.panel?.isOnActiveSpace == false {
+                    self.logPresentation("space-recovery-unresolved")
+                } else if self.didAttemptSpaceRecovery {
+                    self.logPresentation("space-recovery-verified")
+                }
+            }
+        }
 
         if initialMode == .search {
             enterKeyMode()
@@ -449,14 +500,82 @@ public class PopupWindowController {
         }
     }
 
+    /// Replace stale WindowServer membership once after AppKit has had time to order the window.
+    /// Never activate the app or make the panel key to recover an automatic action bar.
+    @discardableResult
+    func recoverPopupSpaceIfNeeded(for attemptID: UUID, frontmostPID: pid_t?,
+                                   makePanel: () -> PopupPanel = { PopupPanel() }) -> Bool {
+        guard presentationAttemptID == attemptID, !didAttemptSpaceRecovery,
+              let context = currentContext, let panel,
+              panel.isVisible, !panel.isOnActiveSpace, !panel.isKeyWindow, modeStore.mode == .actions,
+              let sourcePID = context.sourceApp.processIdentifier,
+              frontmostPID == sourcePID else { return false }
+        didAttemptSpaceRecovery = true
+        logPresentation("space-recovery-start")
+        // Reordering the same window and resetting its Space flags failed in live traces.
+        // Retain the hosting view/state, but give WindowServer a new window identity.
+        let frame = panel.frame
+        let content = panel.contentView
+        let replacement = makePanel()
+        replacement.heightCap = panel.heightCap
+        replacement.appearance = panel.appearance
+        replacement.ignoresMouseEvents = panel.ignoresMouseEvents
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: panel)
+        panel.orderOut(nil)
+        panel.contentView = nil
+        self.panel = replacement
+        replacement.contentView = content
+        replacement.setFrame(frame, display: false)
+        replacement.pinBottomEdgeOnResize = panel.pinBottomEdgeOnResize
+        replacement.releasesBottomPinAfterGrowth = panel.releasesBottomPinAfterGrowth
+        replacement.horizontalAnchor = panel.horizontalAnchor
+        NotificationCenter.default.addObserver(self, selector: #selector(panelOcclusionDidChange(_:)),
+            name: NSWindow.didChangeOcclusionStateNotification, object: replacement)
+        replacement.orderFront(nil)
+        lastPopupFrame = replacement.frame
+        logPresentation("space-recovery-recreated")
+        return true
+    }
+
+    /// Metadata only: never include selected text, window titles, or clipboard contents.
+    private func logPresentation(_ event: String) {
+        guard let context = currentContext else { return }
+        // Successful reads already have a correlated cascade summary. Keep window metadata
+        // only for placement failures and recovery, rather than every click and hover.
+        guard event.hasPrefix("space-recovery") || didAttemptSpaceRecovery
+            || (panel?.isVisible == true && panel?.isOnActiveSpace == false) else { return }
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        let frame = panel.map { NSStringFromRect($0.frame) } ?? "none"
+        let ageMS = sessionShowTime > 0 ? Int((ProcessInfo.processInfo.systemUptime - sessionShowTime) * 1000) : 0
+        let metadata = "event=\(event) pid=\(ProcessInfo.processInfo.processIdentifier) source=\(context.sourceApp.bundleIdentifier ?? "unknown") frontmost=\(frontmost?.bundleIdentifier ?? "unknown") session=\(aiSessionID) ageMS=\(ageMS) visible=\(panel?.isVisible ?? false) activeSpace=\(panel?.isOnActiveSpace ?? false) unoccluded=\(panel?.occlusionState.contains(.visible) ?? false) appActive=\(NSApp.isActive) appHidden=\(NSApp.isHidden) window=\(panel?.windowNumber ?? -1) level=\(panel?.level.rawValue ?? 0) alpha=\(panel?.alphaValue ?? 0) key=\(panel?.isKeyWindow ?? false) hidesOnDeactivate=\(panel?.hidesOnDeactivate ?? false) frame=\(frame) mode=\(modeStore.mode)"
+        let message: Core.LogMessage = "[Trace#\(context.traceID ?? 0, privacy: .public)] popup \(metadata, privacy: .public)"
+        if event == "space-recovery-unresolved" {
+            Log.presentation.warning(message)
+        } else if event.hasPrefix("space-recovery") {
+            Log.presentation.notice(message)
+        } else {
+            Log.presentation.debug(message)
+        }
+    }
+
+    @objc private func panelOcclusionDidChange(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === panel else { return }
+        logPresentation("occlusion-changed")
+    }
+
     public var isVisible: Bool { (panel?.isVisible == true) || (currentContext != nil) }
 
     /// Starts a session without creating AppKit window monitors or ordering windows on screen. Internal for tests.
     func startTestSession(for context: SelectionContext, pasteAvailable: Bool? = nil, initialMode: PopupMode = .actions) {
+        presentationAttemptID = UUID()
+        didAttemptSpaceRecovery = false
         isMenuTracking = false
-        currentContext = context
+        let selectionContext = context.with(
+            pasteTargetAvailable: PasteAvailability.effective(policy: context.appPolicy, probe: pasteAvailable)
+        )
+        currentContext = selectionContext
         captureFrontmostAppIfNeeded()
-        let actionContext = ActionContext(selection: context, modifiers: [])
+        let actionContext = ActionContext(selection: selectionContext, modifiers: [])
         currentActionContext = actionContext
         modeStore.mode = initialMode
         modeStore.canPaste = pasteAvailable
@@ -576,6 +695,43 @@ public class PopupWindowController {
         PopupMetrics.searchPanelWidth
     }
 
+    private func alternateClipboardSearchContext(for selection: SelectionContext) -> SelectionContext? {
+        guard !selection.isClipboardFallback,
+              !selection.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let pasteboard = NSPasteboard.general
+        // Fork: files copied in Finder also put their names on the clipboard; not text to act on.
+        if HotkeyManager.clipboardHoldsFiles(pasteboard) { return nil }
+        guard let text = pasteboard.string(forType: .string),
+              TextSanitizer.isSubstantial(text),
+              text.utf8.count <= Constants.maxTextLength,
+              text != selection.text else { return nil }
+        return SelectionContext(
+            text: text,
+            sourceApp: selection.sourceApp,
+            cursorPosition: selection.cursorPosition,
+            mouseDownLocation: selection.mouseDownLocation,
+            selectionBounds: nil,
+            timestamp: selection.timestamp,
+            appPolicy: selection.appPolicy,
+            isClipboardFallback: true,
+            html: pasteboard.string(forType: .html),
+            rtf: pasteboard.string(forType: .rtf),
+            isEditable: false,
+            pasteTargetAvailable: selection.pasteTargetAvailable
+        )
+    }
+
+    private func updateSearchContext(_ selection: SelectionContext) {
+        guard modeStore.mode == .search else { return }
+        currentActionContext = ActionContext(
+            selection: selection,
+            modifiers: currentActionContext?.modifiers ?? []
+        )
+        // Inline values were evaluated for the original selection. Clear them so the palette
+        // cannot show a stale preview; running the action evaluates it against the active context.
+        modeStore.inlineResults.removeAll()
+    }
+
     /// The hosting view grows the panel to the palette on its own, after the current run-loop turn
     /// (and sometimes a display pass later); a remembered palette can be tall enough for that
     /// growth to run off a screen edge, so nudge it back once the growth has landed. Same two
@@ -622,6 +778,12 @@ public class PopupWindowController {
         if openedDirectlyInSearch {
             hide()
             return
+        }
+        if let currentContext {
+            currentActionContext = ActionContext(
+                selection: currentContext,
+                modifiers: currentActionContext?.modifiers ?? []
+            )
         }
         modeStore.scope = nil
         modeStore.mode = .actions
@@ -719,8 +881,19 @@ public class PopupWindowController {
             // A remembered (or later resized) card may be far taller than the bar/palette cap:
             // let the panel grow as tall as the screen; the card's own clamps keep it on-screen.
             if let panel { panel.heightCap = screenBounds(for: panel).height }
-            modeStore.resultCardSize = rememberedSize(for: .card)
-            modeStore.isSurfaceUserSized = false
+            if isStreaming {
+                // A first response streams into an otherwise content-fitted card. Lock its
+                // dimensions from the first render so each incoming chunk doesn't resize the
+                // panel; use the user's saved size or the standard card size as the stable frame.
+                modeStore.resultCardSize = rememberedSize(for: .card) ?? CGSize(
+                    width: PopupMetrics.aiCardIdealWidth,
+                    height: PopupMetrics.aiCardMinHeight
+                )
+                modeStore.isSurfaceUserSized = true
+            } else {
+                modeStore.resultCardSize = rememberedSize(for: .card)
+                modeStore.isSurfaceUserSized = false
+            }
             if ForkBehavior.spotlightPlacement, let panel {
                 // Fork: the card takes the palette's size and place instead of growing out of the
                 // bar at the cursor. A fixed size renders verbatim, so later fits keep the frame.
@@ -834,11 +1007,11 @@ public class PopupWindowController {
         panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? Self.fallbackScreenBounds
     }
 
-    /// Where the panel sat, and where the cursor was, when the current card drag began. Nil while
+    /// Where the panel sat, and where the cursor was, when the current header drag began. Nil while
     /// no drag is in flight.
     private var cardDragAnchor: (mouse: CGPoint, origin: CGPoint)?
 
-    /// Moves the panel with the cursor while the card's header handle is dragged. The move is
+    /// Moves the panel with the cursor while the card or search header is dragged. The move is
     /// computed from the *absolute* cursor position against the anchor taken at `.began`, never
     /// from the gesture's own translation: the window moves out from under the pointer, so a
     /// translation-based move would fight itself and crawl. `mouseLocation` is injectable so the
@@ -855,9 +1028,16 @@ public class PopupWindowController {
             panel.setFrameOrigin(CGPoint(x: anchor.origin.x + (mouse.x - anchor.mouse.x),
                                          y: anchor.origin.y + (mouse.y - anchor.mouse.y)))
         case .ended:
+            if modeStore.mode == .search, let anchor = cardDragAnchor, var frame = preSearchFrame {
+                frame.origin.x += panel.frame.origin.x - anchor.origin.x
+                frame.origin.y += panel.frame.origin.y - anchor.origin.y
+                preSearchFrame = frame
+            }
             cardDragAnchor = nil
             panel.endUserDrag()
-            hasUserMovedCard = true
+            if modeStore.mode == .content {
+                hasUserMovedCard = true
+            }
         }
     }
 
@@ -1017,6 +1197,7 @@ public class PopupWindowController {
             panel.setFrame(CGRect(x: panel.frame.minX, y: newOriginY,
                                   width: size.width, height: size.height), display: true)
         }
+        updateToastPlacement()
     }
 
     private func syncPanelAppearance(_ targetPanel: NSPanel) {
@@ -1056,7 +1237,9 @@ public class PopupWindowController {
         panel.setFrame(frame, display: true)
     }
 
-    public func hide() {
+    public func hide(reason: String = #function, callerLine: Int = #line) {
+        presentationAttemptID = UUID()
+        logPresentation("hide reason=\(reason) callerLine=\(callerLine)")
         // End the AI session first: cancel the live stream and invalidate its token so any
         // chunk already in flight is dropped instead of re-flipping state after the resets below.
         activeStreamingTask?.cancel()
@@ -1071,9 +1254,11 @@ public class PopupWindowController {
         refiningPrevious = nil
         cardConversation = nil
 
-        if toastController.currentFeedback?.keepVisible == true || toastController.isLoading {
+        if toastController.currentFeedback?.keepVisible == true || toastController.isLoading
+            || isCaptureToastCurrent {
             toastController.hide()
         }
+        captureToastPresentationID = nil
         subBarController.hide()
         tooltipController.hide()
         currentActions = nil
@@ -1082,8 +1267,6 @@ public class PopupWindowController {
         modeStore.isSurfaceUserSized = false
         modeStore.canPaste = nil
         modeStore.inlineResults.removeAll()
-        paletteAlternateContext = nil
-        modeStore.paletteHasAlternateSource = false
         // A dismissed session must not leak its click intent into the next one (keyboard-driven
         // runs and any later snapshot read the last intent; force-copy must never persist). The
         // declared delivery is snapshotted per-perform, so a stale value must not leak either.
@@ -1096,6 +1279,7 @@ public class PopupWindowController {
         pendingActionOutputKind = nil
         accumulatedScrollDelta = 0
         isScrollDismissalSuspended = false
+        distanceDismissGraceUntil = nil
         isRightClickInProgress = false
         modeStore.isProcessingAI = false
         modeStore.mode = .actions
@@ -1163,6 +1347,7 @@ public class PopupWindowController {
             return event
         }
         
+        NotificationCenter.default.addObserver(self, selector: #selector(panelOcclusionDidChange(_:)), name: NSWindow.didChangeOcclusionStateNotification, object: panel)
         NotificationCenter.default.addObserver(self, selector: #selector(menuDidBeginTracking), name: NSMenu.didBeginTrackingNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(menuDidEndTracking), name: NSMenu.didEndTrackingNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(appDidDeactivate), name: NSApplication.didResignActiveNotification, object: nil)
@@ -1223,7 +1408,12 @@ public class PopupWindowController {
             // Distance dismissal suspends in search mode (typing elsewhere must not dismiss the
             // palette), while the AI result card is open (modal), while AI is actively processing,
             // and while onboarding is visible (sandbox experience); it is active otherwise.
-            let distanceDismissActive = modeStore.mode != .search && modeStore.mode != .content && !modeStore.isProcessingAI && !isOnboardingVisible
+            let inArrivalGrace = PopupDismissalGrace.isActive(
+                now: ProcessInfo.processInfo.systemUptime,
+                deadline: distanceDismissGraceUntil
+            )
+            let distanceDismissActive = modeStore.mode != .search && modeStore.mode != .content
+                && !modeStore.isProcessingAI && !isOnboardingVisible && !inArrivalGrace
             if distanceDismissActive, let panel = panel {
                 let frame = panel.frame
                 let screenBounds = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? panel.frame
@@ -1255,7 +1445,7 @@ public class PopupWindowController {
                 }
 
                 if dist > dismissalLimit {
-                    hide()
+                    hide(reason: "cursor-distance")
                 }
             }
         case .leftMouseDown:
@@ -1383,7 +1573,7 @@ public class PopupWindowController {
         return contentView.bounds.contains(contentPoint)
     }
 
-    func updatePopupHover(at screenLocation: CGPoint) {
+    func updatePopupHover(at screenLocation: CGPoint, toggleClickThrough: Bool = true) {
         guard let panel, panel.isVisible, let contentView = panel.contentView else {
             PopupHoverState.shared.location = nil
             return
@@ -1394,8 +1584,10 @@ public class PopupWindowController {
         // global monitor still observes them and dismisses the popup). Gated on global monitoring:
         // without it the local monitor is the only way to notice the pointer re-entering the
         // content area, and ignoring events would strand the panel permanently inert.
+        // The tracking-area path passes `toggleClickThrough: false` for the same reason: there is no
+        // monitor to notice re-entry while inactive/fullscreen, so the panel must stay event-visible.
         let overContent = isOverPanelContent(screenLocation)
-        if PopupHoverState.shared.usesGlobalMouseMonitoring, !panel.isUserDragging {
+        if toggleClickThrough, PopupHoverState.shared.usesGlobalMouseMonitoring, !panel.isUserDragging {
             panel.ignoresMouseEvents = !overContent
         }
         if overContent {
@@ -1418,7 +1610,7 @@ public class PopupWindowController {
         PopupHoverState.shared.location = point
     }
 
-    func updateSubBarHover(at screenLocation: CGPoint) {
+    func updateSubBarHover(at screenLocation: CGPoint, toggleClickThrough: Bool = true) {
         guard subBarController.isShowing else {
             SubBarHoverState.shared.location = nil
             return
@@ -1431,7 +1623,7 @@ public class PopupWindowController {
         }
 
         let overContent = subBarController.isOverContent(screenLocation)
-        if SubBarHoverState.shared.usesGlobalMouseMonitoring {
+        if toggleClickThrough, SubBarHoverState.shared.usesGlobalMouseMonitoring {
             subPanel.ignoresMouseEvents = !overContent
         }
         if overContent {
@@ -1478,6 +1670,21 @@ public class PopupWindowController {
             // Pointer has left both the sub-bar and the main bar (moving across the gap or away)
             subBarController.startGrace()
         }
+    }
+
+    /// Feeds the hover pipeline from the panels' `.activeAlways` tracking areas. This is the path
+    /// that keeps hover/tooltips/group sub-bars alive while OpenClip is inactive — in particular
+    /// with the popup floating over another app's fullscreen Space, where the global monitor gets no
+    /// own-window events, the local monitor gets none (panel not key), and SwiftUI `.onHover` does
+    /// not fire. It is also called on tracking `mouseEntered`/`mouseExited`: a SwiftUI relayout can
+    /// remove and re-add the tracking area, emitting a spurious exit while the pointer is still on
+    /// the bar, so hover is always recomputed from the live cursor instead of blind-cleared.
+    /// Click-through toggling is skipped here: with no monitor to notice re-entry, making the panel
+    /// ignore events would strand it under the cursor.
+    func handleTrackingMouseMoved() {
+        let cursorLoc = NSEvent.mouseLocation
+        updatePopupHover(at: cursorLoc, toggleClickThrough: false)
+        updateSubBarHover(at: cursorLoc, toggleClickThrough: false)
     }
 
     private func handleCancelSubBarDwell() {
@@ -1569,6 +1776,9 @@ public class PopupWindowController {
         let targetScreenFrame = convertHoverFrameToScreen(localFrame)
         guard !targetScreenFrame.isEmpty else { return }
         var avoidanceRects: [CGRect] = []
+        if toastController.isShowing, toastController.currentPlacement != .overlay {
+            avoidanceRects.append(toastController.panelFrame)
+        }
         if subBarController.isShowing {
             avoidanceRects.append(subBarController.panelFrame)
         }
@@ -1639,7 +1849,7 @@ public class PopupWindowController {
             mainBarScreenFrame: panel?.frame,
             isPinned: isPinned,
             searchResultsAbove: modeStore.searchResultsAbove,
-            mainBarAbove: mainBarAbove,
+            mainBarAbove: currentContext?.source == .ocr ? false : mainBarAbove,
             effectiveTheme: effectiveTheme,
             effectiveColorScheme: effectiveColorScheme,
             scale: scale,
@@ -1669,7 +1879,8 @@ public class PopupWindowController {
                 self.runLoadingAction(action, with: context, isSecondaryClick: clickIntent == .secondary)
             },
             onWillPerformAction: { [weak self] action, clickIntent in
-                guard let self else { return }
+                guard let self, let context = self.currentActionContext,
+                      self.canPerformAction(action, in: context) else { return false }
                 self.pendingDelivery = action.delivery
                 self.pendingActionTitle = action.title
                 self.pendingActionIcon = action.displayIcon(using: ActionCustomizationManager.shared)
@@ -1677,6 +1888,7 @@ public class PopupWindowController {
                 self.pendingActionRecommendedResult = action.chrome.recommendedResult
                 self.pendingActionOutputKind = action.chrome.outputKind
                 self.inFlightDeliveryContext = self.deliverySnapshot(for: action, clickIntent: clickIntent)
+                return true
             },
             onActionPerformed: { [weak self] actionID in
                 self?.usageStore.record(actionID)
@@ -1684,6 +1896,7 @@ public class PopupWindowController {
             onClickIntent: { [weak self] in self?.pendingClickIntent ?? .primary }
         )
         modeStore.subBarAbove = actuallyAbove
+        updateToastPlacement()
     }
 
     /// The frontmost app at the moment an in-place answer lands — pasting is only safe into the
@@ -1694,6 +1907,7 @@ public class PopupWindowController {
     /// `replace` pastes the answer over the selection (⏎); otherwise the answer streams into the result card (⇧⏎),
     /// titled after the instruction.
     func runAIPrompt(_ instruction: String, replace: Bool, includeContext: Bool = true) {
+        let replace = replace && currentActionContext?.selection.source != .ocr
         let prompt = PaletteAIPrompt.instruction(from: instruction)
         guard !prompt.isEmpty else { return }
         let taskPrompt = includeContext
@@ -1715,6 +1929,7 @@ public class PopupWindowController {
     /// deleted. A prompt that is already saved reuses its tool rather than minting a duplicate.
     /// The saved tool is recorded as used so it ranks first among equals the next time it is searched.
     func saveAndRunAIPrompt(_ instruction: String, replace: Bool) {
+        let replace = replace && currentActionContext?.selection.source != .ocr
         let prompt = PaletteAIPrompt.instruction(from: instruction)
         guard !prompt.isEmpty else { return }
         let manager = AIServiceManager.shared
@@ -2134,6 +2349,9 @@ public class PopupWindowController {
         /// The performing action's display icon (customization-resolved) — the result card header
         /// icon. Captured alongside `actionTitle` by the same perform paths.
         let actionIcon: ActionIcon?
+        /// Input/destination requirements rechecked immediately before effects are executed.
+        let inputRequirement: ActionInputRequirement?
+        let requiresPasteTarget: Bool
         /// The selection context captured before any early-close (loading actions), used to re-show
         /// the popup as a preview card. nil when the popup never closed.
         let selection: SelectionContext?
@@ -2156,6 +2374,8 @@ public class PopupWindowController {
                 outputKind: outputKind,
                 actionTitle: actionTitle,
                 actionIcon: actionIcon,
+                inputRequirement: inputRequirement,
+                requiresPasteTarget: requiresPasteTarget,
                 selection: selection
             )
             return (declared, consumed)
@@ -2185,6 +2405,8 @@ public class PopupWindowController {
             outputKind: outKind,
             actionTitle: title,
             actionIcon: icon,
+            inputRequirement: (action as? any ActionWithRules).map { $0.rules?.requirements?.input ?? .text },
+            requiresPasteTarget: (action as? any ActionWithRules)?.rules?.requirements?.requiresPasteTarget ?? false,
             selection: currentActionContext?.selection
         )
     }
@@ -2199,6 +2421,13 @@ public class PopupWindowController {
             return true
         }
         return frontmost.processIdentifier == targetApp.processIdentifier
+    }
+
+    /// A declared paste-target requirement applies through result dispatch, including any async
+    /// paste probe performed after the action returns.
+    private func requiredPasteTargetIsActive(_ delivery: DeliveryContext?) -> Bool {
+        guard let delivery, delivery.requiresPasteTarget else { return true }
+        return isTargetApplicationActive(delivery.application)
     }
 
     /// Routes a performed result into the tree-walk, snapshotting the delivery inputs first.
@@ -2218,11 +2447,48 @@ public class PopupWindowController {
         pendingActionID = nil
         pendingActionRecommendedResult = nil
         pendingActionOutputKind = nil
-        let (effectiveResult, effectiveDelivery) = resolvedDelivery.consumeDeclaredSecondary(for: result)
+        let (deliveredResult, effectiveDelivery) = resolvedDelivery.consumeDeclaredSecondary(for: result)
+        let effectiveResult = normalizeOCRResult(deliveredResult, delivery: effectiveDelivery)
         if shouldDismiss(effectiveResult, delivery: effectiveDelivery) {
             hide()
         }
         handleActionResult(effectiveResult, delivery: effectiveDelivery, suppressDeliveryToast: effectiveResult.containsToast)
+    }
+
+    private func copyOnlyOCRResult(_ result: ActionResult) -> ActionResult {
+        switch result {
+        case .paste(let text), .cut(let text): return .copy(text)
+        case .pasteContent(let payload): return .copyContent(payload)
+        case .simulatePaste: return .none
+        case .sequence(let items): return .sequence(items.map(copyOnlyOCRResult))
+        default: return result
+        }
+    }
+
+    private func normalizeOCRResult(_ result: ActionResult, delivery: DeliveryContext?) -> ActionResult {
+        let isOCRDelivery = delivery?.selection?.source == .ocr
+            || (delivery == nil && currentContext?.source == .ocr)
+        let ocrSafe = isOCRDelivery ? copyOnlyOCRResult(result) : result
+        guard let delivery, delivery.inputRequirement != nil || delivery.requiresPasteTarget else { return ocrSafe }
+
+        let selection = delivery.selection
+        let input = delivery.inputRequirement ?? .optional
+        let hasText = !(selection?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        let liveAndCurrent = selection?.source == .selection
+            && (selection.map(selectionIsCurrent) ?? false)
+            && isTargetApplicationActive(delivery.application)
+        let inputSatisfied: Bool
+        switch input {
+        case .optional: inputSatisfied = true
+        case .text: inputSatisfied = hasText
+        case .liveSelection: inputSatisfied = hasText && liveAndCurrent
+        case .editableSelection: inputSatisfied = hasText && liveAndCurrent && selection?.isEditable == true
+        }
+        let pasteTargetSatisfied = !delivery.requiresPasteTarget
+            || (selection?.pasteTargetAvailable == true
+                && PasteAvailability.effective(policy: delivery.policy, probe: selection?.pasteTargetAvailable) == true
+                && isTargetApplicationActive(delivery.application))
+        return inputSatisfied && pasteTargetSatisfied ? ocrSafe : .none
     }
 
     /// Walks an ActionResult produced by a perform, rendering presentation results in the popup and
@@ -2234,7 +2500,8 @@ public class PopupWindowController {
     /// A `.sequence` runs item N+1 only after item N completes (nested sequences recurse).
     @discardableResult
     func handleActionResult(_ result: ActionResult, delivery: DeliveryContext? = nil, suppressDeliveryToast: Bool = false) -> Task<Void, Never>? {
-        let (effectiveResult, effectiveDelivery) = delivery?.consumeDeclaredSecondary(for: result) ?? (result, delivery)
+        let (selectedResult, effectiveDelivery) = delivery?.consumeDeclaredSecondary(for: result) ?? (result, delivery)
+        let effectiveResult = normalizeOCRResult(selectedResult, delivery: effectiveDelivery)
         let effectiveSuppressToast = suppressDeliveryToast || effectiveResult.containsToast
         switch effectiveResult {
         case .toast(let feedback):
@@ -2268,6 +2535,7 @@ public class PopupWindowController {
         return Task { @MainActor in
             do {
                 let resolved = await resolveDelivery(effect, delivery: delivery, suppressDeliveryToast: suppressDeliveryToast)
+                guard requiredPasteTargetIsActive(delivery) else { return }
                 if case .text(let text) = resolved.result {
                     // Preview preference: render the returned text in the native AI result card
                     // without delivering any effect. The popup stays open (a top-level `.text` never
@@ -2297,7 +2565,7 @@ public class PopupWindowController {
                 // A detached-surface result (e.g. the Look Up popover) suspends scroll dismissal
                 // for the rest of the session; anything else leaves it off.
                 isScrollDismissalSuspended = resolved.result.suspendsScrollDismissal
-                try await resultHandler.handle(resolved.result, in: panel?.contentView)
+                try await resultHandler.handle(resolved.result, in: panel?.contentView, targetApp: delivery?.application)
                 let toastToShow: StatusFeedback? = {
                     if let toast = resolved.toast {
                         if case .saveFile = resolved.result {
@@ -2338,6 +2606,9 @@ public class PopupWindowController {
     /// probe runs only when a paste outcome is actually on the table (the raw result is a paste, or
     /// a declared secondary is a paste); the declared secondary and per-click toasts still apply to
     /// any result.
+    internal var selectionIsCurrent: @MainActor (SelectionContext) -> Bool = { _ in true }
+    internal private(set) var lastDeliveryStatus: SelectionReadStatus?
+
     private func resolveDelivery(_ result: ActionResult, delivery: DeliveryContext?, suppressDeliveryToast: Bool = false) async -> (result: ActionResult, toast: StatusFeedback?) {
         guard let delivery else { return (result, nil) }
         let selected = ActionResultDelivery.select(
@@ -2348,15 +2619,28 @@ public class PopupWindowController {
             recommendedResult: delivery.recommendedResult,
             outputKind: delivery.outputKind
         )
-        let couldPaste = isPaste(selected)
+        let couldPaste = delivery.selection?.source != .ocr && isPaste(selected)
         let isTargetActive = isTargetApplicationActive(delivery.application)
-        let canPaste: Bool
+            && (delivery.selection.map(selectionIsCurrent) ?? true)
+        var canPaste: Bool
         if !couldPaste || !isTargetActive {
             canPaste = false
         } else if !PasteAvailability.needsProbe(policy: delivery.policy) {
             canPaste = PasteAvailability.effective(policy: delivery.policy, probe: nil) ?? false
         } else {
             canPaste = await pasteProbe.canPaste(in: delivery.application, policy: delivery.policy) ?? false
+        }
+        // A target may change while the AX paste probe is suspended.
+        if couldPaste, !isTargetApplicationActive(delivery.application)
+            || !(delivery.selection.map(selectionIsCurrent) ?? true) {
+            canPaste = false
+        }
+        if couldPaste, !isTargetActive || !(delivery.selection.map(selectionIsCurrent) ?? true)
+            || !isTargetApplicationActive(delivery.application) {
+            lastDeliveryStatus = .targetChanged
+            Log.selection.debug("delivery outcome: targetChanged")
+        } else {
+            lastDeliveryStatus = nil
         }
         let resolved = ActionResultDelivery.resolve(
             raw: result,
@@ -2411,6 +2695,7 @@ public class PopupWindowController {
     /// popup is already up; otherwise opens on the retrieved selection so paste/preview still have
     /// a delivery context, then performs.
     func runBoundAction(_ action: any Action, with context: ActionContext, pasteAvailable: Bool? = nil) {
+        guard canPerformAction(action, in: context) else { return }
         if panel?.isVisible != true {
             show(for: context.selection, pasteAvailable: pasteAvailable)
         } else if let pasteAvailable {
@@ -2424,12 +2709,40 @@ public class PopupWindowController {
         runAction(action, with: context, isSecondaryClick: false)
     }
 
+    /// Shared perform-time gate for UI clicks, group actions, and bound hotkeys. Visibility is
+    /// recomputed from the captured context, while source-bound requirements also verify that the
+    /// monitored selection generation and target application still match immediately before run.
+    private func canPerformAction(_ action: any Action, in context: ActionContext) -> Bool {
+        guard action.isEnabled(for: context) else { return false }
+        guard let ruledAction = action as? any ActionWithRules else { return true }
+        let requirements = ruledAction.rules?.requirements ?? ActionRequirements()
+        let selection = context.selection
+        let liveAndCurrent = selection.source == .selection
+            && selectionIsCurrent(selection)
+            && isTargetApplicationActive(previousFrontmostApp)
+        switch requirements.input {
+        case .optional, .text:
+            break
+        case .liveSelection:
+            guard liveAndCurrent else { return false }
+        case .editableSelection:
+            guard liveAndCurrent, selection.isEditable == true else { return false }
+        }
+        if requirements.requiresPasteTarget {
+            guard context.pasteTargetAvailable == true,
+                  PasteAvailability.effective(policy: selection.appPolicy, probe: context.pasteTargetAvailable) == true,
+                  isTargetApplicationActive(previousFrontmostApp) else { return false }
+        }
+        return true
+    }
+
     /// Performs an action directly (the right-click path, which the bar's SwiftUI Button never
     /// fires) and routes its result through the standard dismissal + tree-walk, recording usage.
     /// Mirrors the left-click perform path in PopupView. The delivery context is built here from
     /// `isSecondaryClick`, so the decision never depends on live state read after the perform await.
     /// Internal for tests (mirrors `runLoadingAction`).
     func runAction(_ action: any Action, with context: ActionContext, isSecondaryClick: Bool) {
+        guard canPerformAction(action, in: context) else { return }
         if action.chrome.showsLoading {
             runLoadingAction(action, with: context, isSecondaryClick: isSecondaryClick)
             return
@@ -2486,6 +2799,7 @@ public class PopupWindowController {
     /// captured before the early hide so paste-vs-copy still sees the pre-dismissal context.
     /// Internal for tests.
     func runLoadingAction(_ action: any Action, with context: ActionContext, isSecondaryClick: Bool) {
+        guard canPerformAction(action, in: context) else { return }
         let clickIntent: ActionResultDelivery.ClickIntent = isSecondaryClick ? .secondary : .primary
         pendingClickIntent = clickIntent
         // The declared delivery + title are snapshotted into the DeliveryContext below — this
@@ -2548,7 +2862,8 @@ public class PopupWindowController {
     /// a `.toast`), the delivery companion is skipped and whatever toast is showing is left alone —
     /// the script toast item in the tree presents itself, one toast per run.
     private func settleLoadingResult(_ result: ActionResult, delivery: DeliveryContext, suppressDeliveryToast: Bool = false) async {
-        let (effectiveResult, effectiveDelivery) = delivery.consumeDeclaredSecondary(for: result)
+        let (selectedResult, effectiveDelivery) = delivery.consumeDeclaredSecondary(for: result)
+        let effectiveResult = normalizeOCRResult(selectedResult, delivery: effectiveDelivery)
         let effectiveSuppressToast = suppressDeliveryToast || effectiveResult.containsToast
         switch effectiveResult {
         case .toast(var feedback):
@@ -2563,6 +2878,10 @@ public class PopupWindowController {
             let effect = effectiveResult
             do {
                 let resolved = await resolveDelivery(effect, delivery: effectiveDelivery, suppressDeliveryToast: effectiveSuppressToast)
+                guard requiredPasteTargetIsActive(effectiveDelivery) else {
+                    toastController.hide()
+                    return
+                }
                 if case .text(let text) = resolved.result {
                     // Preview preference on a loading action: the popup early-closed for the spinner,
                     // so hide the spinner and re-show the popup as a content-mode card, anchored to
@@ -2571,6 +2890,10 @@ public class PopupWindowController {
                     toastController.hide()
                     if let selection = effectiveDelivery.selection {
                         let canPaste = await pasteProbe.canPaste(in: effectiveDelivery.application, policy: effectiveDelivery.policy) ?? false
+                        guard requiredPasteTargetIsActive(effectiveDelivery) else {
+                            toastController.hide()
+                            return
+                        }
                         show(for: selection, pasteAvailable: canPaste)
                         showResultCard(text: text, isError: false, title: effectiveDelivery.actionTitle ?? "Action", icon: effectiveDelivery.actionIcon, session: aiSessionID, canFollowUp: false)
                     }
@@ -2616,22 +2939,23 @@ public class PopupWindowController {
         }
     }
 
-    /// Surfaces a StatusFeedback as the floating toast (the single status renderer). When `point`
-    /// is provided, the toast centers over that point (e.g. mouse cursor); otherwise it attaches
-    /// to the popup panel's live (or last) frame.
-    public func showToast(_ feedback: StatusFeedback, at point: CGPoint? = nil) {
-        let anchor: NSRect?
-        if let point {
-            anchor = NSRect(origin: point, size: CGSize(width: 1, height: 1))
-        } else {
-            anchor = panel?.frame ?? lastPopupFrame
-        }
-        toastController.show(feedback, anchorFrame: anchor)
+    /// Feedback lives in its own window; the action panel never grows or shrinks for it.
+    func updateToastPlacement() {
+        guard toastController.isShowing, toastController.currentPlacement != .overlay, let panel else { return }
+        let avoidance = subBarController.isShowing ? [subBarController.panelFrame] : []
+        toastController.reposition(anchorFrame: panel.frame, avoidanceRects: avoidance)
     }
 
-    /// Surfaces a StatusFeedback as the floating toast (the single status renderer). The toast
-    /// is independent of the popup, so it shows whether the popup stays up or has already hidden;
-    /// it always attaches to the popup's live (or last) frame — never the pointer.
+    /// Shows feedback near an explicit point or the current cursor; popup/group frames are
+    /// avoidance rectangles, not the position of the toast.
+    public func showToast(_ feedback: StatusFeedback, at point: CGPoint? = nil) {
+        let avoidance = subBarController.isShowing ? [subBarController.panelFrame] : []
+        let placement = point.map { ToastPlacement.nearCursor($0) }
+        toastController.show(feedback, anchorFrame: panel?.frame ?? lastPopupFrame,
+                             placement: placement, avoidanceRects: avoidance)
+    }
+
+    /// Status feedback uses its own cursor-relative window even after the popup has hidden.
     private func presentToast(_ feedback: StatusFeedback) {
         showToast(feedback)
     }

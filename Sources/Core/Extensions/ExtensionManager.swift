@@ -83,18 +83,16 @@ public final class ExtensionManager: Sendable {
             finalActions = scanned
         }
         
+        // Register refreshed actions first so any transitioning actions (e.g. active <-> gated)
+        // are already present in registeredActions before obsolete temporary IDs are unregistered.
+        for action in finalActions {
+            onRegister?(action)
+        }
         let newIDs = Set(finalActions.map { $0.id })
-        // Diff the previous vs refreshed action IDs. Only unregister IDs that are permanently gone;
-        // retained IDs are replaced in place via onRegister (register(action:)), so their
-        // .actionOrder entries survive the reload instead of being pruned by a full
-        // unregister-then-register cycle.
         for oldAction in self.loadedActions where !newIDs.contains(oldAction.id) {
             onUnregister?(oldAction.id)
         }
         self.loadedActions = finalActions
-        for action in finalActions {
-            onRegister?(action)
-        }
     }
     
     /// Installs a new extension package (.openclipext folder, .zip archive, or script file) into ~/.openclip/extensions
@@ -270,10 +268,26 @@ public final class ExtensionManager: Sendable {
     public func uninstallExtension(actionID: String, targetDir: URL = Constants.extensionsDirectory) async throws {
         let fm = FileManager.default
         let items = try fm.contentsOfDirectory(at: targetDir, includingPropertiesForKeys: [.isDirectoryKey])
+        // A duplicated package identifier extends its original identifier (for example,
+        // `com.example.hello.copy.ab12`). Prefer an exact manifest identifier before the
+        // prefix fallback below, or uninstalling the copy can remove the original first.
+        let exactPackageURL = items.first { itemURL in
+            guard !itemURL.lastPathComponent.hasPrefix(".") else { return false }
+            var isDirectory: ObjCBool = false
+            guard fm.fileExists(atPath: itemURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                return false
+            }
+            return ExtensionManifestStore.candidateFileNames.contains { fileName in
+                ExtensionManifestStore.readManifest(at: itemURL.appendingPathComponent(fileName))?.identifier == actionID
+            }
+        }
+        let searchItems = exactPackageURL.map { exactURL in
+            [exactURL] + items.filter { $0 != exactURL }
+        } ?? items
         var removed = false
         var removedPackageID: String?
 
-        for itemURL in items {
+        for itemURL in searchItems {
             // Skip hidden/staging dirs
             guard !itemURL.lastPathComponent.hasPrefix(".") else { continue }
 

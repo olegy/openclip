@@ -16,6 +16,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     private var statusBarController: StatusBarController?
     private var selectionMonitor: (any SelectionMonitoring)?
     private var popupController: PopupWindowController?
+    private var captureTextController: CaptureTextController?
     private var aiActionSync: AIActionSync?
     private var extensionsWatcher: ExtensionsDirectoryWatcher?
 
@@ -31,6 +32,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         return true
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        captureTextController?.cancel()
+        ExtensionUpdateManager.shared.stopAutomaticUpdates()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
 
@@ -40,9 +46,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         Log.addSink(rotatingSink)
         _ = DebugLogStore.shared
 
-        OpenSelection.logger = { message in
-            Log.selection.debug("\(message, privacy: .public)")
-        }
+        DiagnosticsHub.shared.install(OpenClipDiagnosticsSink())
+        DiagnosticsHub.shared.setReportMode(.onFailureOrSlow)
 
         // Remove temporary calendar .ics files a previous session left behind before its
         // deferred cleanup could run (crash or quit during the delay window).
@@ -89,6 +94,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         DeepLinkRouter.shared.configure { [weak self] in
             self?.statusBarController?.showPreferences()
         }
+
+        LocalExtensionInstaller.shared.configure { [weak self] in
+            self?.statusBarController?.showPreferences()
+        }
         
         // Setup popup controller
         let controller = PopupWindowController()
@@ -96,17 +105,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         
         // Setup selection monitor
         let macMonitor = MacSelectionMonitor()
+        controller.selectionIsCurrent = { [weak macMonitor] context in
+            guard let generation = context.selectionGeneration else { return true }
+            return macMonitor?.selectionGeneration == generation
+        }
         // Presentation gate only: "Appear Automatically" is evaluated by the monitor on its
         // passive (mouse-release/keyboard) path, not here — the explicit hold gesture and the
         // ⌥⌘C hotkey must still summon the popup with it off. Global Pause is rechecked at
         // delivery time here because the hold/retrieval sleeps can outlast the pause toggle.
         macMonitor.onSelection = { [weak self] context, canPaste in
             let isPaused = DefaultSettingsStore.shared.get(.pauseUntilTimestamp) > Date().timeIntervalSince1970
+            if isPaused || self?.popupController == nil {
+                Log.selection.debug("[Trace#\(context.traceID ?? 0, privacy: .public)] popup delivery blocked paused=\(isPaused, privacy: .public) controllerAvailable=\(self?.popupController != nil, privacy: .public)")
+            }
             if !isPaused {
                 // A real selection means the user has seen (or no longer needs) the nudge.
                 self?.coachMarkController?.dismiss()
                 self?.popupController?.show(for: context, pasteAvailable: canPaste)
             }
+        }
+        let captureController = CaptureTextController(popupController: controller)
+        captureTextController = captureController
+        macMonitor.isSuppressed = { [weak captureController] in captureController?.isCapturing ?? false }
+        statusBarController?.onCaptureText = { [weak captureController] sourceApp in
+            captureController?.toggleCapture(sourceApp: sourceApp)
         }
         macMonitor.preparePasteProbe = { [weak self] app, policy in
             self?.popupController?.preparePasteProbe(for: app, policy: policy)
@@ -125,15 +147,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         }
 
         // Setup global shortcut hotkey manager
-        HotkeyManager.shared.setup(popupController: controller, selectionMonitor: selectionMonitor)
+        HotkeyManager.shared.setup(popupController: controller, selectionMonitor: selectionMonitor, captureTextController: captureController)
+
+        let optionStore = SecretActionOptionStore()
+        ExtensionManager.shared.actionFactory = DefaultActionFactory(optionStore: optionStore)
+        ExtensionManager.shared.optionWriter = optionStore
+        ExtensionManager.shared.optionReader = optionStore
+        ExtensionManager.shared.settingsStore = DefaultSettingsStore.shared
+        CustomActionJSRunnerRegistry.runner = DefaultCustomActionJSRunner()
 
         Task {
-            let optionStore = SecretActionOptionStore()
-            ExtensionManager.shared.actionFactory = DefaultActionFactory(optionStore: optionStore)
-            ExtensionManager.shared.optionWriter = optionStore
-            ExtensionManager.shared.optionReader = optionStore
-            ExtensionManager.shared.settingsStore = DefaultSettingsStore.shared
-            CustomActionJSRunnerRegistry.runner = DefaultCustomActionJSRunner()
             await ActionCoordinator.shared.loadInitialState(
                 dictionaryLookup: DictionaryLookupFactory.systemLookup
             )
@@ -149,6 +172,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             // appear without relaunching. Started after loadInitialState so the
             // onRegister/onUnregister registry wiring is already in place.
             startExtensionWatcher()
+            if NSClassFromString("XCTestCase") == nil {
+                ExtensionUpdateManager.shared.startAutomaticUpdates()
+            }
         }
         
         guard NSClassFromString("XCTestCase") == nil else { return }
@@ -453,8 +479,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
+            if LocalExtensionInstaller.isExtensionPackageURL(url) {
+                Task { @MainActor in
+                    await LocalExtensionInstaller.shared.install(from: url)
+                }
+                continue
+            }
             DeepLinkRouter.shared.handle(url)
         }
+    }
+
+    func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        let urls = filenames.map { URL(fileURLWithPath: $0) }
+        application(sender, open: urls)
+        sender.reply(toOpenOrPrint: .success)
     }
 
     // MARK: - UNUserNotificationCenterDelegate

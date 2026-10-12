@@ -39,6 +39,24 @@ public enum PopupBarAlignment: String, Codable, CaseIterable, Sendable {
     case right
 }
 
+/// Which side of the main bar the contextual actions island sits on ("auto" | "left" | "right").
+/// `auto` follows the bar's horizontal alignment: a right-aligned bar puts the island on the
+/// right, a left- or center-aligned bar keeps it on the left.
+public enum ContextualPillPosition: String, Codable, CaseIterable, Sendable {
+    case auto
+    case left
+    case right
+
+    /// True when the island should be drawn after (to the right of) the standard island.
+    public func isTrailing(for alignment: PopupBarAlignment) -> Bool {
+        switch self {
+        case .left: return false
+        case .right: return true
+        case .auto: return alignment == .right
+        }
+    }
+}
+
 /// Vertical placement mode of the popup bar relative to the cursor/selection ("auto" | "above" | "below").
 public enum PopupVerticalPosition: String, Codable, CaseIterable, Sendable {
     case auto
@@ -59,6 +77,8 @@ public extension SettingKey where Value == [String] {
 }
 
 public extension SettingKey where Value == Set<String> {
+    /// AI presets moved out of AI Tools and into the main popup bar.
+    static var standaloneAIActionIDs: SettingKey<Set<String>> { SettingKey<Set<String>>("standaloneAIActionIDs", defaultValue: []) }
     static var disabledActionIDs: SettingKey<Set<String>> { SettingKey<Set<String>>("disabledActionIDs", defaultValue: []) }
     static var disabledPackages: SettingKey<Set<String>> { SettingKey<Set<String>>("disabledPackages", defaultValue: []) }
     static var disabledContextualActionIDs: SettingKey<Set<String>> { SettingKey<Set<String>>("disabledContextualActionIDs", defaultValue: []) }
@@ -84,6 +104,7 @@ public extension SettingKey where Value == [String: String] {
 }
 
 public extension SettingKey where Value == Bool {
+    static var showSearchAllActions: SettingKey<Bool> { SettingKey<Bool>("showSearchAllActions", defaultValue: true) }
     static var isAppEnabled: SettingKey<Bool> { SettingKey<Bool>("isAppEnabled", defaultValue: true) }
     static var isAIEnabled: SettingKey<Bool> { SettingKey<Bool>("aiEnabled", defaultValue: true) }
     static var isMouseHoldEnabled: SettingKey<Bool> { SettingKey<Bool>("isMouseHoldEnabled", defaultValue: true) }
@@ -92,18 +113,21 @@ public extension SettingKey where Value == Bool {
     /// has been dismissed by any path — it never shows again for this install.
     static var hasDismissedPostOnboardingCoachMark: SettingKey<Bool> { SettingKey<Bool>("hasDismissedPostOnboardingCoachMark", defaultValue: false) }
     static var startAtLogin: SettingKey<Bool> { SettingKey<Bool>("startAtLogin", defaultValue: false) }
+    static var captureTextAutoCopy: SettingKey<Bool> { SettingKey<Bool>("captureTextAutoCopy", defaultValue: true) }
     static var completionCopyToClipboard: SettingKey<Bool> { SettingKey<Bool>("completionCopyToClipboard", defaultValue: false) }
     /// True once the one-time migration (auto-trust existing installs) has run.
     static var extensionTrustMigrated: SettingKey<Bool> { SettingKey<Bool>("extension.trustMigrated", defaultValue: false) }
     static var automaticallyChecksForUpdates: SettingKey<Bool> { SettingKey<Bool>("automaticallyChecksForUpdates", defaultValue: true) }
-    static var automaticallyDownloadsUpdates: SettingKey<Bool> { SettingKey<Bool>("automaticallyDownloadsUpdates", defaultValue: true) }
+    static var automaticallyDownloadsUpdates: SettingKey<Bool> { SettingKey<Bool>("automaticallyDownloadsUpdates", defaultValue: false) }
+    static var automaticallyUpdatesExtensions: SettingKey<Bool> { SettingKey<Bool>("extension.automaticallyUpdates", defaultValue: true) }
     static var notifyOnUpdate: SettingKey<Bool> { SettingKey<Bool>("notifyOnUpdate", defaultValue: true) }
+    static var popupFitToWidth: SettingKey<Bool> { SettingKey<Bool>("popupFitToWidth", defaultValue: false) }
     static var contextualActionsEnabled: SettingKey<Bool> { SettingKey<Bool>("contextualActionsEnabled", defaultValue: true) }
 }
 
 public extension SettingKey where Value == Int {
-    /// Number of actions displayed per page in the popup bar (legacy, default 7).
-    static var popupPageSize: SettingKey<Int> { SettingKey<Int>("popupPageSize", defaultValue: 7) }
+    /// Target number of actions displayed per page in the popup bar (2...24, default 6; ignored when popupFitToWidth is enabled).
+    static var popupPageSize: SettingKey<Int> { SettingKey<Int>("popupPageSize", defaultValue: 6) }
     /// Maximum width budget level for the popup bar from 1 to 5 (3 = Standard / Default ~540pt).
     static var popupBarWidth: SettingKey<Int> { SettingKey<Int>("popupBarWidth", defaultValue: 3) }
     /// Visual scaling level for the popup from 1 to 5 (3 = Normal / Default).
@@ -124,6 +148,10 @@ public extension SettingKey where Value == Data? {
 }
 
 public extension SettingKey where Value == String {
+    static var lastAppUpdateNotificationIdentifier: SettingKey<String> { SettingKey<String>("lastAppUpdateNotificationIdentifier", defaultValue: "") }
+    static var lastAnnouncedAppUpdateVersion: SettingKey<String> { SettingKey<String>("lastAnnouncedAppUpdateVersion", defaultValue: "") }
+    /// Which side of the main bar the contextual actions island sits on; see `ContextualPillPosition`.
+    static var contextualPillPosition: SettingKey<String> { SettingKey<String>("contextualPillPosition", defaultValue: ContextualPillPosition.auto.rawValue) }
     static var calendarProvider: SettingKey<String> { SettingKey<String>("action.calendar.provider", defaultValue: "native") }
     static var searchURL: SettingKey<String> { SettingKey<String>("action.search.url", defaultValue: "https://www.google.com/search?q={query}") }
 
@@ -154,4 +182,3 @@ public extension SettingKey where Value == String {
         SettingKey<String>("action.\(actionID).option.\(optionID)", defaultValue: defaultValue)
     }
 }
-

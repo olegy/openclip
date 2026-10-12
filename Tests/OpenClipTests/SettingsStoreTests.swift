@@ -19,6 +19,24 @@ final class SettingsStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testExtensionAutomaticUpdatesDefaultAndPersistence() async {
+        let settings = MemorySettingsStore()
+        let manager = ExtensionUpdateManager(settings: settings)
+        XCTAssertTrue(manager.automaticallyUpdatesExtensions)
+
+        manager.automaticallyUpdatesExtensions = false
+        XCTAssertFalse(settings.get(.automaticallyUpdatesExtensions))
+        let restored = ExtensionUpdateManager(settings: settings)
+        XCTAssertFalse(restored.automaticallyUpdatesExtensions)
+        await restored.performAutomaticUpdate()
+        XCTAssertFalse(restored.isChecking)
+        XCTAssertTrue(restored.updatablePackageIDs.isEmpty)
+
+        restored.automaticallyUpdatesExtensions = true
+        XCTAssertTrue(ExtensionUpdateManager(settings: settings).automaticallyUpdatesExtensions)
+    }
+
+    @MainActor
     func testTypedSettingReadWrite() {
         XCTAssertEqual(store.get(.actionOrder), [])
         store.set(.actionOrder, value: ["builtin.copy", "builtin.paste"])
@@ -30,6 +48,23 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(store.get(.disabledActionIDs).isEmpty)
         store.set(.disabledActionIDs, value: ["builtin.search"])
         XCTAssertEqual(store.get(.disabledActionIDs), ["builtin.search"])
+    }
+
+    @MainActor
+    func testContextualPillPositionDefaultsToAuto() {
+        XCTAssertEqual(store.get(.contextualPillPosition), "auto")
+        store.set(.contextualPillPosition, value: "right")
+        XCTAssertEqual(store.get(.contextualPillPosition), "right")
+    }
+
+    func testContextualPillAutoFollowsHorizontalAlignment() {
+        XCTAssertFalse(ContextualPillPosition.auto.isTrailing(for: .left))
+        XCTAssertFalse(ContextualPillPosition.auto.isTrailing(for: .center))
+        XCTAssertTrue(ContextualPillPosition.auto.isTrailing(for: .right))
+        for alignment in PopupBarAlignment.allCases {
+            XCTAssertFalse(ContextualPillPosition.left.isTrailing(for: alignment))
+            XCTAssertTrue(ContextualPillPosition.right.isTrailing(for: alignment))
+        }
     }
 
     @MainActor
@@ -61,7 +96,7 @@ final class SettingsStoreTests: XCTestCase {
 
     @MainActor
     func testPopupPageSizeReadWrite() {
-        XCTAssertEqual(store.get(.popupPageSize), 7)
+        XCTAssertEqual(store.get(.popupPageSize), 6)
         store.set(.popupPageSize, value: 5)
         XCTAssertEqual(store.get(.popupPageSize), 5)
     }

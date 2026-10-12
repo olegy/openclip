@@ -13,23 +13,26 @@ public typealias AppIdentity = Core.AppIdentity
 public typealias SelectionGatePolicy = Core.SelectionGatePolicy
 public typealias CursorClass = Core.CursorClass
 public typealias TextResult = Core.TextResult
+public typealias SelectionReadStatus = Core.SelectionReadStatus
+public typealias LogLevel = Core.LogLevel
 
 extension SelectionRetrievalCoordinator {
     /// Convenience initializer preserving compatibility with OpenClip's TextResult-based copy captures.
     public init(
-        inspect: @escaping TargetProvider = { AXElementInspector.inspect() },
+        inspect: @escaping TargetProvider = { trace in AXElementInspector.inspect(trace: trace) },
         copyCapture: (@Sendable (CopyTrigger) async -> Core.TextResult?)?,
         menuPress: @escaping MenuPress = SelectionRetrievalCoordinator.pressEditCopyMenu,
         scriptRunner: @escaping ScriptRunner = SelectionRetrievalCoordinator.defaultScriptRunner
     ) {
         let mappedCapture: CopyCapture? = copyCapture.map { cc in
-            { @Sendable trigger in
-                if let res = await cc(trigger) {
+            { @Sendable (request: CopyRequest) in
+                if let res = await cc(request.trigger) {
                     return OpenSelection.SelectionResult(
                         text: res.text,
                         bounds: res.bounds,
                         html: res.html,
                         rtf: res.rtf,
+                        flavors: res.flavors.map { PasteboardFlavor(type: $0.type, data: $0.data) },
                         strategy: .keyboardCopy
                     )
                 }
@@ -45,16 +48,36 @@ extension SelectionRetrievalCoordinator {
         )
     }
 
+    /// Convenience initializer accepting parameterless SimpleTargetProvider.
+    public init(
+        inspect: @escaping SimpleTargetProvider,
+        copyCapture: (@Sendable (CopyTrigger) async -> Core.TextResult?)?,
+        menuPress: @escaping MenuPress = SelectionRetrievalCoordinator.pressEditCopyMenu,
+        scriptRunner: @escaping ScriptRunner = SelectionRetrievalCoordinator.defaultScriptRunner
+    ) {
+        self.init(
+            inspect: { _ in inspect() },
+            copyCapture: copyCapture,
+            menuPress: menuPress,
+            scriptRunner: scriptRunner
+        )
+    }
+
     /// Reads selection details using OpenClip's Core.AppIdentity and Core.AppPolicyContext.
-    public func retrieveDetails(
+    public func retrieveResponse(
         for app: Core.AppIdentity,
         policy: Core.AppPolicyContext,
         cursor: Core.CursorClass,
         isSelectAll: Bool = false,
         allowCopyFallback: Bool = true,
-        requireCopyEvidence: Bool = true
-    ) async -> (result: Core.TextResult?, isEditable: Bool) {
-        let openSelectionApp = OpenSelection.AppIdentity(bundleIdentifier: app.bundleIdentifier, localizedName: app.localizedName)
+        requireCopyEvidence: Bool = true,
+        trigger: TriggerSource = .programmatic
+    ) async -> Core.TextReadResponse {
+        let openSelectionApp = OpenSelection.AppIdentity(
+            bundleIdentifier: app.bundleIdentifier,
+            localizedName: app.localizedName,
+            processIdentifier: app.processIdentifier
+        )
         let openSelectionPolicy = OpenSelection.SelectionPolicy(
             disabled: policy.disabled,
             hotkeyOnly: policy.hotkeyOnly,
@@ -68,18 +91,19 @@ extension SelectionRetrievalCoordinator {
         )
         let openSelectionCursor = OpenSelection.CursorClass(rawValue: cursor.rawValue) ?? .unknown
 
-        let (result, isEditable) = await self.retrieveDetails(
+        let response = await self.retrieveResponse(
             for: openSelectionApp,
             policy: openSelectionPolicy,
             cursor: openSelectionCursor,
             isSelectAll: isSelectAll,
             allowCopyFallback: allowCopyFallback,
-            requireCopyEvidence: requireCopyEvidence
+            requireCopyEvidence: requireCopyEvidence,
+            trigger: trigger
         )
 
         // `formattedText` performs WebKit-backed HTML import, which is main-actor isolated.
         let textResult: Core.TextResult?
-        if let result {
+        if let result = response.result {
             textResult = await MainActor.run {
                 Core.TextResult(
                     text: result.formattedText,
@@ -92,9 +116,20 @@ extension SelectionRetrievalCoordinator {
         } else {
             textResult = nil
         }
-        return (textResult, isEditable)
+        return Core.TextReadResponse(result: textResult, isEditable: response.isEditable,
+                                     status: Core.SelectionReadStatus(rawValue: response.status.rawValue) ?? .failed, traceID: response.traceID)
     }
 
+
+    public func retrieveDetails(
+        for app: Core.AppIdentity, policy: Core.AppPolicyContext, cursor: Core.CursorClass,
+        isSelectAll: Bool = false, allowCopyFallback: Bool = true, requireCopyEvidence: Bool = true
+    ) async -> (result: Core.TextResult?, isEditable: Bool) {
+        let response = await retrieveResponse(for: app, policy: policy, cursor: cursor,
+            isSelectAll: isSelectAll, allowCopyFallback: allowCopyFallback,
+            requireCopyEvidence: requireCopyEvidence)
+        return (response.result, response.isEditable)
+    }
 
     /// Reads selection using OpenClip's Core.AppIdentity and Core.AppPolicyContext.
     public func retrieve(
@@ -173,6 +208,8 @@ extension OpenSelection {
         pasteboard: NSPasteboard = .general,
         restoreDelay: TimeInterval = 0.25,
         restorePasteboard: Bool = true,
+        appActivator: (@MainActor @Sendable (NSRunningApplication) -> Void)? = nil,
+        targetActiveChecker: (@MainActor @Sendable (NSRunningApplication) async -> Bool)? = nil,
         keyPoster: (@MainActor @Sendable (CGKeyCode, CGEventFlags) -> Void)? = nil
     ) async throws {
         let config = SelectionConfiguration(
@@ -182,8 +219,11 @@ extension OpenSelection {
         let replacer = SelectionReplacer(
             configuration: config,
             pasteboard: pasteboard,
+            focusedElementProvider: { _ in nil },
             directAXReplacer: { _, _ in false },
-            keyPoster: keyPoster ?? { KeyboardEventPoster.postKey(keyCode: $0, flags: $1) }
+            keyPoster: keyPoster ?? { KeyboardEventPoster.postKey(keyCode: $0, flags: $1) },
+            appActivator: appActivator ?? { $0.activate() },
+            targetActiveChecker: targetActiveChecker ?? SelectionReplacer.defaultTargetActiveChecker
         )
         try await replacer.replace(
             with: text,
@@ -196,4 +236,59 @@ extension OpenSelection {
         )
     }
 }
+
+/// Diagnostics sink bridging OpenSelection structured events and cascade reports to OpenClip's logging pipeline.
+public struct OpenClipDiagnosticsSink: OpenSelectionDiagnosticsSink {
+    public let minimumLevel: OpenSelection.LogLevel
+
+    public init(minimumLevel: OpenSelection.LogLevel = .debug) {
+        self.minimumLevel = minimumLevel
+    }
+
+    public func record(_ event: DiagnosticEvent) {
+        let coreLevel: Core.LogLevel
+        switch event.level {
+        case .trace, .debug:
+            coreLevel = .debug
+        case .info:
+            coreLevel = .info
+        case .warning:
+            coreLevel = .warning
+        case .error:
+            coreLevel = .error
+        case .fault:
+            coreLevel = .fault
+        }
+
+        let formattedFields = event.fields.map { "\($0.key)=\(Self.format($0.value))" }.sorted().joined(separator: " ")
+        let line = formattedFields.isEmpty
+            ? "[\(event.traceID)] [\(event.category.rawValue)] \(event.message)"
+            : "[\(event.traceID)] [\(event.category.rawValue)] \(event.message) [\(formattedFields)]"
+
+        Log.selection.log(level: coreLevel, Core.LogMessage(stringValue: line))
+    }
+
+    public func finish(_ report: CascadeReport) {
+        // The correlated completion event is the sole normal-level summary.
+        // Reports remain available to other sinks and the diagnostics inspector.
+    }
+
+    private static func format(_ value: OpenSelection.FieldValue) -> String {
+        switch value {
+        case .int(let v):
+            return "\(v)"
+        case .bool(let v):
+            return v ? "true" : "false"
+        case .micros(let v):
+            return "\(v)µs"
+        case .presence(let v):
+            return v.rawValue
+        case .ax(let v):
+            return v.rawValue
+        case .token(let v):
+            return v
+        }
+    }
+}
+
 

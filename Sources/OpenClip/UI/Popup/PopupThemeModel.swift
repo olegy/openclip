@@ -60,6 +60,11 @@ enum PopupThemeModel {
         }
     }
 
+    /// Slightly softened accent for the popup action bars.
+    static var barHoverFill: Color {
+        Color(nsColor: NSColor.controlAccentColor.blended(withFraction: 0.08, of: .white) ?? .controlAccentColor)
+    }
+
     /// The secondary foreground color (hints, badges) for the given effective theme token.
     static func restSecondary(for effectiveTheme: String) -> Color {
         switch effectiveTheme {
@@ -231,6 +236,153 @@ public extension EnvironmentValues {
 
 // MARK: - Shared Card Chrome
 
+/// Shared footer control surface for the search palette and result card. Glass uses the native
+/// Liquid Glass effect on macOS 26+, while classic themes and older systems keep their tinted fill.
+struct PopupFooterButtonChrome: ViewModifier {
+    let effectiveTheme: String
+    let colorScheme: ColorScheme
+    let isHovered: Bool
+    var tint: Color? = nil
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: PopupMetrics.footerButtonCornerRadius, style: .continuous)
+    }
+
+    func body(content: Content) -> some View {
+        Group {
+            if effectiveTheme == "glass",
+               #available(macOS 26.0, *),
+               !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
+                if let tint {
+                    content
+                        .background(shape.fill(tint.opacity(colorScheme == .light ? 1.0 : (isHovered ? 0.38 : 0.28))))
+                        .background(.ultraThinMaterial, in: shape)
+                        .glassEffect(.regular.tint(tint.opacity(colorScheme == .light ? 1.0 : 0.42)).interactive(), in: shape)
+                        .overlay(shape.stroke(Color.white.opacity(0.24), lineWidth: 0.5))
+                } else {
+                    content
+                        .background(shape.fill(Color.primary.opacity(isHovered ? 0.14 : 0.08)))
+                        .background(.ultraThinMaterial, in: shape)
+                        .glassEffect(.regular.interactive(), in: shape)
+                        .overlay(
+                            shape.stroke(
+                                colorScheme == .dark ? Color.white.opacity(0.18) : Color.black.opacity(0.10),
+                                lineWidth: 0.5
+                            )
+                        )
+                }
+            } else {
+                content
+                    .background(
+                        shape.fill(
+                        tint?.opacity(isHovered ? 0.85 : 1.0)
+                            ?? Color.primary.opacity(isHovered
+                                ? (colorScheme == .dark ? 0.18 : 0.12)
+                                : (colorScheme == .dark ? 0.12 : 0.07))
+                        )
+                    )
+                    .overlay(
+                        shape.stroke(
+                            tint == nil
+                                ? (colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.08))
+                                : Color.white.opacity(0.20),
+                            lineWidth: 0.5
+                        )
+                    )
+            }
+        }
+    }
+}
+
+extension View {
+    func popupFooterButtonChrome(
+        effectiveTheme: String,
+        colorScheme: ColorScheme,
+        isHovered: Bool,
+        tint: Color? = nil
+    ) -> some View {
+        modifier(
+            PopupFooterButtonChrome(
+                effectiveTheme: effectiveTheme,
+                colorScheme: colorScheme,
+                isHovered: isHovered,
+                tint: tint
+            )
+        )
+    }
+
+    func popupHeaderButtonChrome(
+        effectiveTheme: String,
+        colorScheme: ColorScheme,
+        isHovered: Bool,
+        tint: Color? = nil
+    ) -> some View {
+        modifier(
+            PopupHeaderButtonChrome(
+                effectiveTheme: effectiveTheme,
+                colorScheme: colorScheme,
+                isHovered: isHovered,
+                tint: tint
+            )
+        )
+    }
+}
+
+/// Compact circular chrome for the result card's header controls.
+private struct PopupHeaderButtonChrome: ViewModifier {
+    let effectiveTheme: String
+    let colorScheme: ColorScheme
+    let isHovered: Bool
+    var tint: Color? = nil
+
+    private let shape = Circle()
+
+    func body(content: Content) -> some View {
+        Group {
+            if effectiveTheme == "glass",
+               #available(macOS 26.0, *),
+               !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
+                if let tint {
+                    content
+                        .background(shape.fill(tint.opacity(isHovered ? 0.38 : 0.28)))
+                        .background(.ultraThinMaterial, in: shape)
+                        .glassEffect(.regular.tint(tint.opacity(0.42)).interactive(), in: shape)
+                        .overlay(shape.stroke(Color.white.opacity(0.24), lineWidth: 0.5))
+                } else {
+                    content
+                        .background(shape.fill(Color.primary.opacity(isHovered ? 0.14 : 0.08)))
+                        .background(.ultraThinMaterial, in: shape)
+                        .glassEffect(.regular.interactive(), in: shape)
+                        .overlay(
+                            shape.stroke(
+                                colorScheme == .dark ? Color.white.opacity(0.18) : Color.black.opacity(0.10),
+                                lineWidth: 0.5
+                            )
+                        )
+                }
+            } else {
+                content
+                    .background(
+                        shape.fill(
+                            tint?.opacity(isHovered ? 0.85 : 1.0)
+                                ?? Color.primary.opacity(isHovered
+                                    ? (colorScheme == .dark ? 0.18 : 0.12)
+                                    : (colorScheme == .dark ? 0.12 : 0.07))
+                        )
+                    )
+                    .overlay(
+                        shape.stroke(
+                            tint == nil
+                                ? (colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.08))
+                                : Color.white.opacity(0.20),
+                            lineWidth: 0.5
+                        )
+                    )
+            }
+        }
+    }
+}
+
 public struct PopupCardChromeModifier: ViewModifier {
     public let cornerRadius: CGFloat
     public let effectiveTheme: String
@@ -246,24 +398,37 @@ public struct PopupCardChromeModifier: ViewModifier {
         self.colorScheme = colorScheme
     }
 
+    @ViewBuilder
     public func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        return content
-            .background(
-                Group {
-                    if effectiveTheme == "glass" && !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
-                        LayeredGlassBackground(cornerRadius: cornerRadius, colorScheme: colorScheme)
-                    } else {
-                        PopupThemeModel.classicSurfaceBackground(for: colorScheme, in: shape)
-                    }
-                }
+        if effectiveTheme == "glass" && !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
+            shadowed(
+                content
+                    .background(LayeredGlassBackground(cornerRadius: cornerRadius, colorScheme: colorScheme))
+                    .clipShape(shape)
+                    .overlay(outerBorder(shape))
+                    .overlay(rimHighlight(shape))
             )
-            .clipShape(shape)
-            .overlay(outerBorder(shape))
-            .overlay(rimHighlight(shape))
-            // Edge-lit depth: a tight contact shadow grounds the card, a low-alpha ambient lifts
-            // it. Geometry lives in `PopupMetrics` (`cardShadow*`) because `popupShadowInset` must
-            // cover the ambient's full blur tail or the panel frame hard-clips it.
+        } else {
+            content
+                .clipShape(shape)
+                .background {
+                    // Rasterize only the solid surface and its shadow, with enough transparent
+                    // space for the blur. AppKit can promote the live buttons to backing layers
+                    // after presentation; their clipping must not change the shadow's buffer.
+                    shadowed(PopupThemeModel.classicSurfaceBackground(for: colorScheme, in: shape))
+                        .padding(PopupMetrics.popupShadowInset)
+                        .drawingGroup()
+                        .padding(-PopupMetrics.popupShadowInset)
+                        .allowsHitTesting(false)
+                }
+                .overlay(outerBorder(shape))
+                .overlay(rimHighlight(shape))
+        }
+    }
+
+    private func shadowed<Surface: View>(_ surface: Surface) -> some View {
+        surface
             .shadow(
                 color: .black.opacity(colorScheme == .dark ? 0.38 : 0.14),
                 radius: PopupMetrics.cardShadowContactRadius,
@@ -327,3 +492,39 @@ public extension View {
     }
 }
 
+// MARK: - Action Bar Highlight
+
+extension View {
+    /// Search-style neutral highlight; inset chrome preserves the full button hit area.
+    func popupBarHighlight(
+        _ fill: Color,
+        scale: CGFloat,
+        isText: Bool = false,
+        leadingEdge: Bool = false,
+        trailingEdge: Bool = false,
+        outerInset: CGFloat = 3,
+        isHovered: Bool,
+        namespace: Namespace.ID
+    ) -> some View {
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: (leadingEdge ? 10 : 7) * scale,
+            bottomLeadingRadius: (leadingEdge ? 10 : 7) * scale,
+            bottomTrailingRadius: (trailingEdge ? 10 : 7) * scale,
+            topTrailingRadius: (trailingEdge ? 10 : 7) * scale,
+            style: .continuous
+        )
+        return background {
+            Group {
+                if isHovered {
+                    shape.fill(fill)
+                        .matchedGeometryEffect(id: "barHover", in: namespace)
+                } else {
+                    shape.fill(fill)
+                }
+            }
+            .padding(.leading, (leadingEdge ? outerInset : (isText ? 0 : 2)) * scale)
+            .padding(.trailing, (trailingEdge ? outerInset : (isText ? 0 : 2)) * scale)
+            .padding(.vertical, 3 * scale)
+        }
+    }
+}

@@ -49,10 +49,12 @@ public final class ActionRegistry: ObservableObject, Sendable {
     /// single-valued. One level only: a child never re-parents through another child.
     private func subActionParents(explicitlyOrderedIDs: [String: Int]) -> [String: String] {
         let resolver = SubActionResolver()
+        let standaloneAIIDs = settingsStore.get(.standaloneAIActionIDs)
         var parents: [String: String] = [:]
         for parent in registeredActions where parent is any SubActionProviding {
             for child in resolver.subActions(of: parent, in: registeredActions) {
                 guard child.id != parent.id, parents[child.id] == nil else { continue }
+                if ActionIdentity.isAIPreset(child), standaloneAIIDs.contains(child.id) { continue }
                 if !(parent is GroupAction), explicitlyOrderedIDs[child.id] != nil {
                     continue
                 }
@@ -88,6 +90,12 @@ public final class ActionRegistry: ObservableObject, Sendable {
         func placement(of action: any Action) -> (tier: Int, rank: Int) {
             if let index = orderIndexMap[action.id] {
                 return (0, index)
+            } else if let packageID = ActionIdentity.extensionPackageID(of: action),
+                      let index = orderIndexMap[packageID] {
+                return (0, index)
+            } else if let gated = action as? GatedExtensionAction,
+                      let match = order.enumerated().first(where: { $0.element == gated.packageID || $0.element.hasPrefix(gated.packageID + ".") }) {
+                return (0, match.offset)
             } else if ActionIdentity.isBuiltin(action) {
                 return (1, 0)
             } else {
@@ -208,8 +216,12 @@ public final class ActionRegistry: ObservableObject, Sendable {
                 .flatMap { resolver.subActions(of: $0, in: registeredActions).map(\.id) }
         )
 
+        let standaloneAIIDs = settingsStore.get(.standaloneAIActionIDs)
         let newOrder = newActions
-            .filter { !ActionIdentity.isAIPreset($0) && !($0 is CustomGroupAction) && !subActionIDs.contains($0.id) }
+            .filter {
+                if ActionIdentity.isAIPreset($0) { return standaloneAIIDs.contains($0.id) }
+                return !($0 is CustomGroupAction) && !subActionIDs.contains($0.id)
+            }
             .map { $0.id }
         settingsStore.set(.actionOrder, value: newOrder)
 
@@ -237,7 +249,21 @@ public final class ActionRegistry: ObservableObject, Sendable {
         let currentOrder = settingsStore.get(.actionOrder)
         guard !currentOrder.isEmpty else { return }
         let activeIDs = Set(registeredActions.map { $0.id }).union(groupDefs.map { $0.id })
-        let prunedOrder = currentOrder.filter { activeIDs.contains($0) }
+        let prunedOrder = currentOrder.filter { id in
+            if activeIDs.contains(id) { return true }
+            if registeredActions.contains(where: {
+                if let gated = $0 as? GatedExtensionAction {
+                    return gated.packageID == id || id.hasPrefix(gated.packageID + ".")
+                }
+                if let pkgID = ActionIdentity.extensionPackageID(of: $0) {
+                    return pkgID == id
+                }
+                return false
+            }) {
+                return true
+            }
+            return false
+        }
         if prunedOrder != currentOrder {
             settingsStore.set(.actionOrder, value: prunedOrder)
         }
@@ -269,14 +295,19 @@ public final class ActionRegistry: ObservableObject, Sendable {
     
     /// Context gating shared by the bar and the search palette: can this action actually perform
     /// against the current selection/app? Settings-disable state is applied separately (see
-    /// `settingsHiddenIDs`). Clipboard-fallback actions that require a live selection and
-    /// formatting actions under a deny-formatting app policy drop. An AI preset answers through
+    /// `settingsHiddenIDs`). Actions that require a live selection are excluded from clipboard/OCR
+    /// input, except explicit OCRInputAction support; OCR also excludes paste-requiring actions.
+    /// Formatting actions under a deny-formatting app policy drop. An AI preset answers through
     /// its own `isEnabled`, which reads the preset's toggle in AI settings, so a preset switched
     /// off there is not offered anywhere.
     private func canPerform(_ action: any Action, in context: ActionContext) -> Bool {
-        // Clipboard fallback is not a live selection: Copy/Cut (and any future action that
-        // reads or mutates the real selection) must not act on text that was never selected.
-        if context.selection.isClipboardFallback && action.chrome.requiresLiveSelection {
+        // Clipboard/OCR input is not an editable source selection. OCRInputAction is the explicit
+        // exception for text actions such as Copy; paste-requiring actions have no OCR target.
+        if context.selection.source == .ocr && action is any PasteRequiringAction {
+            return false
+        }
+        if context.selection.source != .selection && action.chrome.requiresLiveSelection
+            && !(context.selection.source == .ocr && action is any OCRInputAction) {
             return false
         }
         return action.isEnabled(for: context)
@@ -299,7 +330,7 @@ public final class ActionRegistry: ObservableObject, Sendable {
     private func hiddenGroupIDs(isRowVisible: (any Action) -> Bool) -> Set<String> {
         Set(
             actions
-                .filter { $0.chrome.popupBehavior == .showSubActions }
+                .filter { $0.chrome.popupBehavior == .showSubActions || $0.chrome.launchesAI }
                 .filter { !isRowVisible($0) }
                 .map(\.id)
         )
@@ -307,17 +338,23 @@ public final class ActionRegistry: ObservableObject, Sendable {
 
     /// True when the action belongs to a group in `hiddenGroupIDs` — either by id prefix (built-in
     /// and extension groups) or by explicit membership (custom groups keep canonical ids).
-    private func belongsToHiddenGroup(_ action: any Action, hiddenGroupIDs: Set<String>, customGroupMemberToGroupID: [String: String]) -> Bool {
+    private func belongsToHiddenGroup(_ action: any Action, hiddenGroupIDs: Set<String>, memberToGroupID: [String: String]) -> Bool {
         if hiddenGroupIDs.contains(where: { action.id.hasPrefix($0 + ".") }) { return true }
-        if let owningGroupID = customGroupMemberToGroupID[action.id], hiddenGroupIDs.contains(owningGroupID) {
+        if let owningGroupID = memberToGroupID[action.id], hiddenGroupIDs.contains(owningGroupID) {
             return true
         }
         return false
     }
 
-    /// Custom-group membership map (member id → group id).
-    private func customGroupMembership() -> [String: String] {
+    /// Explicit and provider-declared membership, including AI presets with canonical IDs.
+    private func groupMembership() -> [String: String] {
         var map: [String: String] = [:]
+        let resolver = SubActionResolver()
+        for parent in actions {
+            for child in resolver.subActions(of: parent, in: actions) {
+                map[child.id] = parent.id
+            }
+        }
         for def in groupDefs {
             for memberID in def.memberActionIDs {
                 map[memberID] = def.id
@@ -329,14 +366,9 @@ public final class ActionRegistry: ObservableObject, Sendable {
     public func availableActions(for context: ActionContext) -> [any Action] {
         let disabledIDs = settingsStore.get(.disabledActionIDs)
         let disabledPackages = settingsStore.get(.disabledPackages)
-
         func passes(_ action: any Action) -> Bool {
-            // AI preset actions are never bar rows: the reorderable `builtin.aiTools` action
-            // (chrome.launchesAI) is the popup's AI entry, so presets must not flood the
-            // paginated bar even when enabled.
-            if ActionIdentity.isAIPreset(action) {
-                return false
-            }
+            // Keep group children in the catalog for sub-bars. PopupView removes them from
+            // the top-level bar through SubActionResolver, just like other group members.
             if action is GatedExtensionAction {
                 return false
             }
@@ -349,11 +381,11 @@ public final class ActionRegistry: ObservableObject, Sendable {
         // row is disabled (or otherwise not visible) hides its sub-actions entirely, so a
         // disabled group never leaks its sub-actions into the bar.
         let hiddenGroups = hiddenGroupIDs(isRowVisible: passes)
-        let customGroupMemberToGroupID = customGroupMembership()
+        let memberToGroupID = groupMembership()
 
         let available = actions.filter { action in
             guard passes(action) else { return false }
-            return !belongsToHiddenGroup(action, hiddenGroupIDs: hiddenGroups, customGroupMemberToGroupID: customGroupMemberToGroupID)
+            return !belongsToHiddenGroup(action, hiddenGroupIDs: hiddenGroups, memberToGroupID: memberToGroupID)
         }
 
         guard settingsStore.get(.contextualActionsEnabled) else {
@@ -394,7 +426,7 @@ public final class ActionRegistry: ObservableObject, Sendable {
         let hiddenGroups = hiddenGroupIDs { row in
             !isDisabledInSettings(row, disabledIDs: disabledIDs, disabledPackages: disabledPackages)
         }
-        let customGroupMemberToGroupID = customGroupMembership()
+        let memberToGroupID = groupMembership()
 
         return actions.filter { action in
             if action.chrome.launchesAI || ActionIdentity.isCompletionPseudoAction(action) || action is GatedExtensionAction {
@@ -403,11 +435,10 @@ public final class ActionRegistry: ObservableObject, Sendable {
             if isDisabledInSettings(action, disabledIDs: disabledIDs, disabledPackages: disabledPackages) {
                 return false
             }
-            if belongsToHiddenGroup(action, hiddenGroupIDs: hiddenGroups, customGroupMemberToGroupID: customGroupMemberToGroupID) {
+            if belongsToHiddenGroup(action, hiddenGroupIDs: hiddenGroups, memberToGroupID: memberToGroupID) {
                 return false
             }
             return canPerform(action, in: context)
         }
     }
 }
-

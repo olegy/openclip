@@ -34,7 +34,7 @@ final class ForkBehaviorTests: XCTestCase {
         controller.updateRootMenuDynamicItems()
         XCTAssertEqual(controller.pauseAppItem?.isHidden, true)
         let pauseSubmenu = try XCTUnwrap(controller.pauseSubmenu)
-        let pauseParent = controller.pauseAppItem?.menu?.items.first { $0.submenu === pauseSubmenu }
+        let pauseParent = controller.rootMenu?.items.first { $0.submenu === pauseSubmenu }
         XCTAssertEqual(pauseParent?.isHidden, true)
 
         store.set(.pauseUntilTimestamp, value: Date().timeIntervalSince1970 + 1800)
@@ -50,7 +50,7 @@ final class ForkBehaviorTests: XCTestCase {
         let store = MemorySettingsStore()
         store.set(.showMenuBarIcon, value: true)
         let controller = StatusBarController(settingsStore: store)
-        let menu = try XCTUnwrap(controller.pauseAppItem?.menu)
+        let menu = try XCTUnwrap(controller.rootMenu)
         let reportItem = try XCTUnwrap(menu.items.first { $0.title.hasPrefix("Report Issue") })
         XCTAssertTrue(reportItem.isHidden)
 
@@ -91,6 +91,23 @@ final class ForkBehaviorTests: XCTestCase {
         XCTAssertEqual(frame.maxY, expected.maxY, accuracy: 1)
         XCTAssertEqual(controller.modeStore.resultCardSize,
                        CGSize(width: PopupMetrics.searchPanelContentWidth, height: PopupMetrics.searchPaletteMinHeight))
+    }
+
+    /// Upstream (1.8.2) places toasts at the pointer. The palette opens Spotlight-style, away from
+    /// it, so a toast tied to the popup centers on the popup's frame; explicit placements stay.
+    func testToastTiedToThePopupCentersOnItsFrame() {
+        let toast = ToastPanelController(cursorLocation: { CGPoint(x: 5, y: 5) })
+        defer { toast.hide() }
+        let palette = CGRect(x: 400, y: 300, width: 700, height: 430)
+
+        toast.showLoading(message: "Generating…", anchorFrame: palette)
+        XCTAssertEqual(toast.currentPlacement, .overlay)
+        toast.swapTo(StatusFeedback(message: "Done", style: .success))
+        XCTAssertEqual(toast.currentPlacement, .overlay)
+
+        toast.show(StatusFeedback(message: "Copied", style: .success), anchorFrame: palette,
+                   placement: .nearCursor(CGPoint(x: 5, y: 5)))
+        XCTAssertEqual(toast.currentPlacement, .nearCursor(CGPoint(x: 5, y: 5)))
     }
 
     /// A caret with nothing selected in a text control sends no ⌘C: editors such as Obsidian

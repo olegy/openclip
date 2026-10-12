@@ -2,9 +2,10 @@
 // OpenClip
 //
 // Fork: the leading side of the palette footer. Shows where the palette's text comes from — a
-// segmented selection/clipboard switch, styled like the Color Mode picker in Appearance — and
-// the start of that text on one line. Only the sources that were read get a segment; with no
-// text at all it says so (D005). Replaces upstream's action count (`ForkBehavior.paletteSourceFooter`).
+// segmented selection/clipboard switch, styled like the Color Mode picker in Appearance, that
+// drives upstream's source toggle — and the start of that text on one line. Only the sources
+// that are available get a segment; with no text at all it says so (D005)
+// (`ForkBehavior.paletteSourceFooter`).
 import SwiftUI
 import Core
 

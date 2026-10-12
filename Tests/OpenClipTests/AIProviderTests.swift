@@ -243,7 +243,7 @@ final class AIProviderTests: XCTestCase {
         let customPrompt = "Translate into pirate English"
         let systemPrompt = AIRequestSupport.systemPrompt(for: customPrompt)
         XCTAssertTrue(systemPrompt.contains("Task:\nTranslate into pirate English"))
-        XCTAssertTrue(systemPrompt.contains("Output ONLY the transformed text"))
+        XCTAssertTrue(systemPrompt.contains("Return only the requested deliverable"))
         XCTAssertTrue(systemPrompt.contains("<result>...</result>"))
 
         let emptyTaskPrompt = AIRequestSupport.systemPrompt(for: "  ")
@@ -332,5 +332,50 @@ final class AIProviderTests: XCTestCase {
         XCTAssertEqual(AIRequestSupport.extractResultText(leaked), "Fixed text.")
         XCTAssertEqual(AIRequestSupport.extractTitleText(leaked), "Fix Spelling")
         XCTAssertFalse(leaked.contains("<title><title>"))
+    }
+
+    // MARK: - #43: cancellation must not read as clean completion
+
+    /// Lets the test cancel the producing task while the consumer stays subscribed.
+    private final class ProducerBox: @unchecked Sendable {
+        var task: Task<Void, Never>?
+    }
+
+    func testFinishStreamThrowsCancellationForCancelledTask() async {
+        let box = ProducerBox()
+        let stream = AsyncThrowingStream<String, Error> { continuation in
+            box.task = Task {
+                while !Task.isCancelled { await Task.yield() }
+                AIRequestSupport.finishStream(continuation)
+            }
+        }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        box.task?.cancel()
+
+        do {
+            for try await _ in stream {}
+            XCTFail("A cancelled producer must throw CancellationError, not finish cleanly")
+        } catch is CancellationError {
+            // expected
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+    }
+
+    func testFinishStreamCompletesCleanlyForLiveTask() async {
+        let stream = AsyncThrowingStream<String, Error> { continuation in
+            Task {
+                continuation.yield("chunk")
+                AIRequestSupport.finishStream(continuation)
+            }
+        }
+
+        var received: [String] = []
+        do {
+            for try await chunk in stream { received.append(chunk) }
+        } catch {
+            XCTFail("A live producer must finish cleanly, got \(error)")
+        }
+        XCTAssertEqual(received, ["chunk"])
     }
 }

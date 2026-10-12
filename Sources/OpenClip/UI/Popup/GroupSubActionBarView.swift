@@ -14,7 +14,7 @@ public struct GroupSubActionBarView: View {
     public let onResult: @MainActor (ActionResult) -> Void
     public let onRunAI: @MainActor (String) -> Void
     public let onRunLoadingAction: @MainActor (any Action, ActionResultDelivery.ClickIntent) -> Void
-    public let onWillPerformAction: @MainActor (any Action, ActionResultDelivery.ClickIntent) -> Void
+    public let onWillPerformAction: @MainActor (any Action, ActionResultDelivery.ClickIntent) -> Bool
     public let onActionPerformed: @MainActor (String) -> Void
     public let onClickIntent: @MainActor () -> ActionResultDelivery.ClickIntent
     public let onHoverTarget: @MainActor (PopupHoverTarget, Bool) -> Void
@@ -24,19 +24,26 @@ public struct GroupSubActionBarView: View {
     public let effectiveTheme: String
     public let hoveredTarget: PopupHoverTarget?
     public let scale: CGFloat
+    @Environment(\.colorScheme) private var effectiveColorScheme
     @Binding public var currentPage: Int
     private let hoverState: SubBarHoverState
     /// Shared popup mode store: the sub-bar reads `inlineResults` from it so a child action with
     /// `chrome.isInlineResult` shows its computed text in place of its icon, exactly like the main bar.
     @ObservedObject private var modeStore: PopupModeStore
 
-    @Setting(SettingKey.popupBarWidth) private var barWidthLevel
+    @Setting(SettingKey.popupPageSize) private var pageSize
+    @Setting(SettingKey.popupFitToWidth) private var fitToWidth
+
+    @Namespace private var hoverHighlightNamespace
 
     private var buttonWidth: CGFloat { PopupMetrics.actionButtonWidth * scale }
     private var barButtonHeight: CGFloat { PopupMetrics.barButtonHeight * scale }
     private var cornerRadius: CGFloat { PopupMetrics.popupCornerRadius * scale }
 
+    public let screenWidth: CGFloat?
+
     public init(
+        settingsStore: SettingsStore = DefaultSettingsStore.shared,
         subActions: [any Action],
         currentPage: Binding<Int>,
         hoverState: SubBarHoverState = .shared,
@@ -44,7 +51,7 @@ public struct GroupSubActionBarView: View {
         onResult: @escaping @MainActor (ActionResult) -> Void,
         onRunAI: @escaping @MainActor (String) -> Void,
         onRunLoadingAction: @escaping @MainActor (any Action, ActionResultDelivery.ClickIntent) -> Void,
-        onWillPerformAction: @escaping @MainActor (any Action, ActionResultDelivery.ClickIntent) -> Void,
+        onWillPerformAction: @escaping @MainActor (any Action, ActionResultDelivery.ClickIntent) -> Bool,
         onActionPerformed: @escaping @MainActor (String) -> Void,
         onClickIntent: @escaping @MainActor () -> ActionResultDelivery.ClickIntent,
         onHoverTarget: @escaping @MainActor (PopupHoverTarget, Bool) -> Void = { _, _ in },
@@ -53,8 +60,11 @@ public struct GroupSubActionBarView: View {
         presenter: any ActionPresenting,
         effectiveTheme: String,
         hoveredTarget: PopupHoverTarget?,
-        scale: CGFloat
+        scale: CGFloat,
+        screenWidth: CGFloat? = nil
     ) {
+        _pageSize = Setting(SettingKey.popupPageSize, store: settingsStore)
+        _fitToWidth = Setting(SettingKey.popupFitToWidth, store: settingsStore)
         self.subActions = subActions
         self._currentPage = currentPage
         self.hoverState = hoverState
@@ -72,6 +82,7 @@ public struct GroupSubActionBarView: View {
         self.effectiveTheme = effectiveTheme
         self.hoveredTarget = hoveredTarget
         self.scale = scale
+        self.screenWidth = screenWidth
     }
 
     // MARK: - Width-Budgeted Pagination helpers
@@ -119,13 +130,25 @@ public struct GroupSubActionBarView: View {
     }
 
     private var maxSubBarBudget: CGFloat {
-        PopupMetrics.barWidth(for: barWidthLevel) * scale
+        // Reserve the row's end inset so a page packed to the budget still fits once the padding is
+        // applied (the padding is added to the rendered HStack but not to the estimator).
+        (screenWidth ?? NSScreen.main?.visibleFrame.width ?? 1440.0) * PopupMetrics.maxScreenFraction
+            - 2 * PopupMetrics.subBarEndInset * scale
     }
 
     private var pages: [[any Action]] {
         // Inline children re-pack at their rendered text width once a preview lands, mirroring the
         // main bar; reading `modeStore.inlineResults` is what makes the view re-evaluate.
-        PopupPageLayout.computePages(actions: subActions, inlineResults: modeStore.inlineResults, leadingWidth: 0, trailingWidth: 0, maxBudget: maxSubBarBudget, scale: scale, presenter: presenter)
+        PopupPageLayout.computePages(
+            actions: subActions,
+            inlineResults: modeStore.inlineResults,
+            leadingWidth: 0,
+            trailingWidth: 0,
+            maxBudget: maxSubBarBudget,
+            maxItemsPerPage: fitToWidth ? Int.max : max(2, min(24, pageSize)),
+            scale: scale,
+            presenter: presenter
+        )
     }
 
     private var totalPages: Int {
@@ -169,6 +192,7 @@ public struct GroupSubActionBarView: View {
                 }
             }
         }
+        .padding(.horizontal, PopupMetrics.subBarEndInset * scale)
         .fixedSize()
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .onChange(of: totalPages) { _, count in
@@ -181,37 +205,38 @@ public struct GroupSubActionBarView: View {
     private func subActionButton(action: any Action, index: Int, isHovered: Bool) -> some View {
         let restForeground = PopupThemeModel.restForeground(for: effectiveTheme)
         let foregroundColor: Color = isHovered ? .white : restForeground
-        let backgroundColor: Color = isHovered ? Color.accentColor : Color.clear
+        let backgroundColor: Color = isHovered ? PopupThemeModel.barHoverFill : Color.clear
 
         // Mirrors the main bar: an inline-result action swaps its icon for the computed text once
         // `InlineResultEvaluator` publishes a result, truncating at the shared width cap.
         let labelView = Group {
             if action.chrome.isInlineResult, let resolved = modeStore.inlineResults[action.id] {
                 Text(resolved)
-                    .font(.system(size: 13 * scale, weight: .regular))
+                    .font(.system(size: 15 * scale, weight: .regular))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .foregroundColor(foregroundColor)
                     .frame(maxWidth: PopupMetrics.inlineResultMaxWidth * scale)
                     .padding(.horizontal, PopupMetrics.inlineResultHorizontalPadding * scale)
                     .frame(minWidth: buttonWidth, minHeight: barButtonHeight)
-                    .background(backgroundColor)
+                    .popupBarHighlight(backgroundColor, scale: scale, isText: true, leadingEdge: index == 0, trailingEdge: index == pagedSubActions.count - 1 && !hasLeftChevron && !hasRightChevron, outerInset: 3 - PopupMetrics.subBarEndInset, isHovered: isHovered, namespace: hoverHighlightNamespace)
                     .transition(.opacity)
             } else {
-                ActionIconView(icon: action.displayIcon(using: presenter), size: 13.5, scale: scale)
+                ActionIconView(icon: action.displayIcon(using: presenter), size: 15.5, scale: scale)
                     .foregroundColor(foregroundColor)
                     .padding(.horizontal, {
-                        if case .text = action.displayIcon(using: presenter) { return 10.0 * scale }
+                        if case .text = action.displayIcon(using: presenter) { return 11.5 * scale }
                         return 0.0
                     }())
-                    .frame(minWidth: buttonWidth, maxWidth: 130 * scale, minHeight: barButtonHeight)
-                    .background(backgroundColor)
+                    .frame(minWidth: buttonWidth, maxWidth: 150 * scale, minHeight: barButtonHeight)
+                    .popupBarHighlight(backgroundColor, scale: scale, isText: { if case .text = action.displayIcon(using: presenter) { return true }; return false }(), leadingEdge: index == 0, trailingEdge: index == pagedSubActions.count - 1 && !hasLeftChevron && !hasRightChevron, outerInset: 3 - PopupMetrics.subBarEndInset, isHovered: isHovered, namespace: hoverHighlightNamespace)
                     .transition(.opacity)
             }
         }
         .contentShape(Rectangle())
 
         Button {
+            guard action.isEnabled(for: context) else { return }
             // Capture the intent once, synchronously, so the perform context and the delivery
             // snapshot agree and neither reads live state after an await.
             let clickIntent = onClickIntent()
@@ -225,7 +250,7 @@ public struct GroupSubActionBarView: View {
             }
             // An already-computed inline result is delivered directly instead of re-running the action.
             if action.chrome.isInlineResult, let resolved = modeStore.inlineResults[action.id] {
-                onWillPerformAction(action, clickIntent)
+                guard onWillPerformAction(action, clickIntent) else { return }
                 onActionPerformed(action.id)
                 onResult(.text(resolved))
                 return
@@ -234,7 +259,7 @@ public struct GroupSubActionBarView: View {
             // rather than re-run, mirroring the main bar; an empty result falls back to perform.
             if action.chrome.isInlineResult, let inFlight = InlineResultEvaluator.shared.runningTask(for: action.id) {
                 Task {
-                    onWillPerformAction(action, clickIntent)
+                    guard onWillPerformAction(action, clickIntent) else { return }
                     onActionPerformed(action.id)
                     do {
                         if let text = await inFlight.value, !text.isEmpty {
@@ -259,7 +284,7 @@ public struct GroupSubActionBarView: View {
             }
             Task {
                 do {
-                    onWillPerformAction(action, clickIntent)
+                    guard onWillPerformAction(action, clickIntent) else { return }
                     onActionPerformed(action.id)
                     let match = action.matchInfo(for: context)
                     let performContext = ActionContext(
@@ -301,10 +326,10 @@ public struct GroupSubActionBarView: View {
         let restForeground = PopupThemeModel.restForeground(for: effectiveTheme)
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 11 * scale, weight: .semibold))
+                .font(.system(size: 12.5 * scale, weight: .semibold))
                 .foregroundColor(isHovered ? .white : restForeground)
-                .frame(width: 29 * scale, height: barButtonHeight)
-                .background(isHovered ? Color.accentColor : Color.clear)
+                .frame(width: PopupPageLayout.chevronWidth * scale, height: barButtonHeight)
+                .popupBarHighlight(isHovered ? PopupThemeModel.barHoverFill : .clear, scale: scale, trailingEdge: systemImage == "chevron.right" || !hasRightChevron, outerInset: 3 - PopupMetrics.subBarEndInset, isHovered: isHovered, namespace: hoverHighlightNamespace)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

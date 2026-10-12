@@ -4,6 +4,7 @@
 // Integration tests covering custom action group lifecycle, extension uninstallation within groups,
 // and table reordering/nesting behaviors in Preferences.
 import XCTest
+import SwiftUI
 @testable import Core
 @testable import OpenClip
 
@@ -503,6 +504,7 @@ final class ActionsOutlineDropTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
+        TestIsolation.reset()
         settingsStore = MemorySettingsStore()
         registry = ActionRegistry(settingsStore: settingsStore)
         coordinator = ActionCoordinator(registry: registry, settingsStore: settingsStore)
@@ -529,7 +531,309 @@ final class ActionsOutlineDropTests: XCTestCase {
         OutlineNode(id: id, kind: .standaloneAction(action(id)))
     }
 
+    private func registerAIPresets() {
+        coordinator.register(action: AIToolsAction(settingsStore: settingsStore))
+        for id in ["ai.preset.rewrite", "ai.preset.summarize"] {
+            coordinator.register(action: DummyAction(id: id, title: id, chrome: ActionChrome(source: .ai)))
+        }
+        outlineCoordinator.rebuildTree()
+    }
+
+    func testAddToGroupMenuMovesAllSelectedActions() throws {
+        let groupID = try XCTUnwrap(coordinator.createGroup(title: "Group", iconName: "folder", memberActionIDs: ["action.4"]))
+        outlineCoordinator.rebuildTree()
+        let outline = ActionsOutlineTableView()
+        outline.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("action")))
+        outline.dataSource = outlineCoordinator
+        outline.delegate = outlineCoordinator
+        outline.allowsMultipleSelection = true
+        outlineCoordinator.outlineView = outline
+        outline.reloadData()
+        let selectedIDs: Set<String> = ["action.1", "action.2"]
+        let rows = IndexSet((0..<outline.numberOfRows).filter {
+            guard let node = outline.item(atRow: $0) as? OutlineNode else { return false }
+            return selectedIDs.contains(node.id)
+        })
+        XCTAssertEqual(rows.count, 2)
+        outline.selectRowIndexes(rows, byExtendingSelection: false)
+        let menu = outlineCoordinator.contextMenu(for: standalone("action.1"))
+        let add = try XCTUnwrap(menu.items.first { $0.title == "Add to Group" })
+        let destination = try XCTUnwrap(add.submenu?.items.first)
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(destination.action), to: destination.target, from: destination))
+        XCTAssertEqual(coordinator.actionGroupDefs.first { $0.id == groupID }?.memberActionIDs, ["action.4", "action.1", "action.2"])
+        XCTAssertFalse(outlineCoordinator.rootNodes.contains { selectedIDs.contains($0.id) })
+    }
+
+    func testDraggingAIPresetToRootPersistsPlacementAndOrder() throws {
+        registerAIPresets()
+        let id = "ai.preset.rewrite"
+        let outline = NSOutlineView()
+        let drag = MockDraggingInfo(actionID: id)
+        XCTAssertEqual(outlineCoordinator.outlineView(outline, validateDrop: drag, proposedItem: nil, proposedChildIndex: 0), .move)
+        XCTAssertTrue(outlineCoordinator.outlineView(outline, acceptDrop: drag, item: nil, childIndex: 0))
+
+        XCTAssertEqual(outlineCoordinator.rootNodes.first?.id, id)
+        XCTAssertEqual(settingsStore.get(.standaloneAIActionIDs), [id])
+        XCTAssertEqual(settingsStore.get(.actionOrder).first, id)
+        let group = try XCTUnwrap(outlineCoordinator.rootNodes.first { $0.id == "builtin.aiTools" })
+        XCTAssertEqual(group.children.map(\.id), ["ai.preset.summarize"])
+
+        // A fresh registry restores the same layout from the saved settings.
+        let restored = ActionRegistry(settingsStore: settingsStore)
+        restored.register(builtIns: Array(coordinator.actions.reversed()))
+        XCTAssertEqual(restored.actions.map(\.id), coordinator.actions.map(\.id))
+        let context = ActionContext(selection: SelectionContext(
+            text: "Example", sourceApp: AppIdentity(bundleIdentifier: "com.test", localizedName: "Test"),
+            cursorPosition: .zero, timestamp: Date(), appPolicy: .default
+        ))
+        XCTAssertTrue(restored.availableActions(for: context).contains { $0.id == id })
+        let available = restored.availableActions(for: context)
+        let popup = PopupView(actions: available, context: context, onResult: { _ in })
+        XCTAssertFalse(popup.displayActions.contains { $0.id == "ai.preset.summarize" })
+        XCTAssertEqual(SubActionResolver().subActions(of: AIToolsAction(settingsStore: settingsStore), in: available).map(\.id), ["ai.preset.summarize"])
+        settingsStore.set(.disabledActionIDs, value: [id])
+        XCTAssertFalse(restored.availableActions(for: context).contains { $0.id == id })
+    }
+
+    func testDraggingAIPresetBackToToolsRemovesStandaloneOrder() throws {
+        registerAIPresets()
+        let id = "ai.preset.rewrite"
+        let outline = NSOutlineView()
+        let drag = MockDraggingInfo(actionID: id)
+        XCTAssertTrue(outlineCoordinator.outlineView(outline, acceptDrop: drag, item: nil, childIndex: 0))
+        let group = try XCTUnwrap(outlineCoordinator.rootNodes.first { $0.id == "builtin.aiTools" })
+        XCTAssertEqual(outlineCoordinator.outlineView(outline, validateDrop: drag, proposedItem: group, proposedChildIndex: NSOutlineViewDropOnItemIndex), .move)
+        XCTAssertTrue(outlineCoordinator.outlineView(outline, acceptDrop: drag, item: group, childIndex: NSOutlineViewDropOnItemIndex))
+        XCTAssertTrue(settingsStore.get(.standaloneAIActionIDs).isEmpty)
+        XCTAssertFalse(settingsStore.get(.actionOrder).contains(id))
+        XCTAssertFalse(outlineCoordinator.rootNodes.contains { $0.id == id })
+        let updatedGroup = try XCTUnwrap(outlineCoordinator.rootNodes.first { $0.id == group.id })
+        XCTAssertEqual(updatedGroup.children.map(\.id), [id, "ai.preset.summarize"])
+    }
+
+    func testDetachedPresetKeepsPositionWhenPresetsReloadAndLauncherMoves() throws {
+        registerAIPresets()
+        let id = "ai.preset.rewrite"
+        let outline = NSOutlineView()
+        XCTAssertTrue(outlineCoordinator.outlineView(outline, acceptDrop: MockDraggingInfo(actionID: id), item: nil, childIndex: 0))
+        coordinator.replaceActions(matching: { ActionIdentity.isAIPreset($0) }, with: [
+            DummyAction(id: "ai.preset.summarize", title: "Summarize", chrome: ActionChrome(source: .ai)),
+            DummyAction(id: id, title: "Renamed", chrome: ActionChrome(source: .ai))
+        ])
+        outlineCoordinator.rebuildTree()
+        let rootCount = outlineCoordinator.rootNodes.count
+        XCTAssertTrue(outlineCoordinator.outlineView(outline, acceptDrop: MockDraggingInfo(actionID: "builtin.aiTools"), item: nil, childIndex: rootCount))
+        XCTAssertEqual(outlineCoordinator.rootNodes.first?.id, id)
+        XCTAssertEqual(outlineCoordinator.rootNodes.first?.action?.title, "Renamed")
+        XCTAssertEqual(outlineCoordinator.rootNodes.last?.children.map(\.id), ["ai.preset.summarize"])
+    }
+
+    func testDraggingMultipleAIPresetsToRootMovesEachOnlyOnce() {
+        registerAIPresets()
+        let ids = ["ai.preset.rewrite", "ai.preset.summarize"]
+        XCTAssertTrue(outlineCoordinator.outlineView(NSOutlineView(), acceptDrop: MockDraggingInfo(actionIDs: ids), item: nil, childIndex: 0))
+        XCTAssertEqual(Array(outlineCoordinator.rootNodes.prefix(2).map(\.id)), ids)
+        XCTAssertEqual(settingsStore.get(.standaloneAIActionIDs), Set(ids))
+        XCTAssertFalse(outlineCoordinator.rootNodes.contains { $0.id == "builtin.aiTools" })
+    }
+
+    func testAIGroupContextMenusUngroupAndRestoreAnEmptyGroup() throws {
+        registerAIPresets()
+        let group = try XCTUnwrap(outlineCoordinator.rootNodes.first { $0.id == "builtin.aiTools" })
+        let ungroup = try XCTUnwrap(outlineCoordinator.contextMenu(for: group).items.first { $0.title == "Ungroup" })
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(ungroup.action), to: ungroup.target, from: ungroup))
+        XCTAssertFalse(outlineCoordinator.rootNodes.contains { $0.id == group.id })
+        XCTAssertEqual(settingsStore.get(.standaloneAIActionIDs), ["ai.preset.rewrite", "ai.preset.summarize"])
+
+        let preset = try XCTUnwrap(outlineCoordinator.rootNodes.first { $0.id == "ai.preset.rewrite" })
+        let add = try XCTUnwrap(outlineCoordinator.contextMenu(for: preset).items.first { $0.title == "Add to Group" })
+        let restore = try XCTUnwrap(add.submenu?.items.first)
+        XCTAssertEqual(restore.title, "AI Tools")
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(restore.action), to: restore.target, from: restore))
+        let restored = try XCTUnwrap(outlineCoordinator.rootNodes.first { $0.id == group.id })
+        XCTAssertEqual(restored.children.map(\.id), [preset.id])
+        XCTAssertEqual(settingsStore.get(.standaloneAIActionIDs), ["ai.preset.summarize"])
+    }
+
+    func testRemoveFromAIGroupContextMenuMovesThePresetToRoot() throws {
+        registerAIPresets()
+        let group = try XCTUnwrap(outlineCoordinator.rootNodes.first { $0.id == "builtin.aiTools" })
+        let preset = try XCTUnwrap(group.children.first)
+        let remove = try XCTUnwrap(outlineCoordinator.contextMenu(for: preset).items.first { $0.title == "Remove from Group" })
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(remove.action), to: remove.target, from: remove))
+        XCTAssertTrue(outlineCoordinator.rootNodes.contains { $0.id == preset.id })
+        XCTAssertEqual(settingsStore.get(.standaloneAIActionIDs), [preset.id])
+    }
+
+    func testReturningPresetBetweenAIGroupMembersRestoresSubBarAndOrder() throws {
+        registerAIPresets()
+        let outline = NSOutlineView()
+        let drag = MockDraggingInfo(actionID: "ai.preset.rewrite")
+        XCTAssertTrue(outlineCoordinator.outlineView(outline, acceptDrop: drag, item: nil, childIndex: 0))
+        let group = try XCTUnwrap(outlineCoordinator.rootNodes.first { $0.id == "builtin.aiTools" })
+        XCTAssertEqual(outlineCoordinator.outlineView(outline, validateDrop: drag, proposedItem: group, proposedChildIndex: 1), .move)
+        XCTAssertTrue(outlineCoordinator.outlineView(outline, acceptDrop: drag, item: group, childIndex: 1))
+        let restored = try XCTUnwrap(outlineCoordinator.rootNodes.first { $0.id == group.id })
+        XCTAssertEqual(restored.children.map(\.id), ["ai.preset.summarize", "ai.preset.rewrite"])
+        let context = ActionContext(selection: SelectionContext(
+            text: "Example", sourceApp: AppIdentity(bundleIdentifier: "com.test", localizedName: "Test"),
+            cursorPosition: .zero, timestamp: Date(), appPolicy: .default
+        ))
+        let available = coordinator.resolveActions(for: context)
+        XCTAssertEqual(SubActionResolver().subActions(of: try XCTUnwrap(restored.action), in: available).map(\.id), restored.children.map(\.id))
+    }
+
+    func testNonAIActionsCannotBePlacedInsideAITools() throws {
+        registerAIPresets()
+        let group = try XCTUnwrap(outlineCoordinator.rootNodes.first { $0.id == "builtin.aiTools" })
+        XCTAssertFalse(outlineCoordinator.outlineView(NSOutlineView(), acceptDrop: MockDraggingInfo(actionID: "action.1"), item: group, childIndex: NSOutlineViewDropOnItemIndex))
+        coordinator.setAIActionPlacement(actionIDs: ["action.1", "missing"], standalone: true)
+        XCTAssertTrue(settingsStore.get(.standaloneAIActionIDs).isEmpty)
+    }
+
     // MARK: - Reordering inside an extension's group
+
+    private func makeDropOutline() -> ActionsOutlineTableView {
+        let outline = ActionsOutlineTableView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        outline.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("action")))
+        outline.dataSource = outlineCoordinator
+        outline.delegate = outlineCoordinator
+        outlineCoordinator.outlineView = outline
+        outline.reloadData()
+        for node in outlineCoordinator.rootNodes where node.isGroup { outline.expandItem(node) }
+        return outline
+    }
+
+    func testMultipleGroupMembersMoveTogetherIntoReportedGap() throws {
+        let id = try XCTUnwrap(coordinator.createGroup(title: "Group", iconName: "folder",
+            memberActionIDs: ["action.1", "action.2", "action.3", "action.4"]))
+        outlineCoordinator.rebuildTree()
+        let group = try XCTUnwrap(outlineCoordinator.rootNodes.first { $0.id == id })
+        let outline = makeDropOutline()
+        let drag = MockDraggingInfo(actionIDs: ["action.1", "action.2"])
+        XCTAssertEqual(outlineCoordinator.outlineView(outline, validateDrop: drag, proposedItem: group, proposedChildIndex: 4), .move)
+        XCTAssertEqual(outline.highlightedDropGroupID, id)
+        XCTAssertTrue(outlineCoordinator.outlineView(outline, acceptDrop: drag, item: group, childIndex: 4))
+        XCTAssertEqual(coordinator.memberActionIDs(for: id), ["action.3", "action.4", "action.1", "action.2"])
+        XCTAssertNil(outline.highlightedDropGroupID)
+    }
+
+    func testMultipleExtensionCommandsReorderTogether() throws {
+        let groupID = "com.pkg.extgroup"
+        coordinator.register(action: GroupAction(id: groupID, title: "Extensions", icon: .symbol("folder"),
+            chrome: ActionChrome(rowStyle: .actionGroup, popupBehavior: .showSubActions, source: .extensionPkg(packageID: "com.pkg"))))
+        let ids = (1...4).map { "\(groupID).s\($0)" }
+        for id in ids { coordinator.register(action: DummyAction(id: id, title: id)) }
+        outlineCoordinator.rebuildTree()
+        let group = try XCTUnwrap(outlineCoordinator.rootNodes.first { $0.id == groupID })
+        let outline = makeDropOutline()
+        let drag = MockDraggingInfo(actionIDs: Array(ids.prefix(2)))
+        XCTAssertEqual(outlineCoordinator.outlineView(outline, validateDrop: drag, proposedItem: group, proposedChildIndex: 4), .move)
+        XCTAssertTrue(outlineCoordinator.outlineView(outline, acceptDrop: drag, item: group, childIndex: 4))
+        XCTAssertEqual(coordinator.memberActionIDs(for: groupID), [ids[2], ids[3], ids[0], ids[1]])
+    }
+
+    func testDroppingMembersOnTheirOwnGroupHeaderKeepsThemGrouped() throws {
+        let id = try XCTUnwrap(coordinator.createGroup(title: "Group", iconName: "folder", memberActionIDs: ["action.1", "action.2", "action.3"]))
+        outlineCoordinator.rebuildTree()
+        let group = try XCTUnwrap(outlineCoordinator.rootNodes.first { $0.id == id })
+        let outline = makeDropOutline()
+        let drag = MockDraggingInfo(actionID: "action.1")
+        XCTAssertEqual(outlineCoordinator.outlineView(outline, validateDrop: drag, proposedItem: group, proposedChildIndex: NSOutlineViewDropOnItemIndex), .move)
+        XCTAssertEqual(outline.highlightedDropGroupID, id)
+        XCTAssertTrue(outlineCoordinator.outlineView(outline, acceptDrop: drag, item: group, childIndex: NSOutlineViewDropOnItemIndex))
+        XCTAssertEqual(coordinator.memberActionIDs(for: id), ["action.2", "action.3", "action.1"])
+    }
+
+    func testMixedExistingAndIncomingMembersKeepDropOrder() throws {
+        let id = try XCTUnwrap(coordinator.createGroup(title: "Group", iconName: "folder", memberActionIDs: ["action.1", "action.2", "action.3"]))
+        outlineCoordinator.rebuildTree()
+        let group = try XCTUnwrap(outlineCoordinator.rootNodes.first { $0.id == id })
+        XCTAssertTrue(outlineCoordinator.outlineView(NSOutlineView(), acceptDrop: MockDraggingInfo(actionIDs: ["action.1", "action.4"]), item: group, childIndex: 3))
+        XCTAssertEqual(coordinator.memberActionIDs(for: id), ["action.2", "action.3", "action.1", "action.4"])
+    }
+
+    func testMovingLastGroupMemberOutPreservesRootDestination() throws {
+        let id = try XCTUnwrap(coordinator.createGroup(title: "Group", iconName: "folder", memberActionIDs: ["action.1"]))
+        outlineCoordinator.rebuildTree()
+        let index = try XCTUnwrap(outlineCoordinator.rootNodes.firstIndex { $0.id == id })
+        let outline = makeDropOutline()
+        let drag = MockDraggingInfo(actionID: "action.1")
+        XCTAssertEqual(outlineCoordinator.outlineView(outline, validateDrop: drag, proposedItem: nil, proposedChildIndex: index), .move)
+        XCTAssertNil(outline.highlightedDropGroupID)
+        XCTAssertTrue(outlineCoordinator.outlineView(outline, acceptDrop: drag, item: nil, childIndex: index))
+        XCTAssertFalse(coordinator.actionGroupDefs.contains { $0.id == id })
+        XCTAssertEqual(outlineCoordinator.rootNodes.compactMap { $0.action?.id }, ["action.1", "action.2", "action.3", "action.4"])
+    }
+
+    func testDraggingGroupWithItsSelectedChildDoesNotUngroupChild() throws {
+        let id = try XCTUnwrap(coordinator.createGroup(title: "Group", iconName: "folder", memberActionIDs: ["action.1", "action.2"]))
+        outlineCoordinator.rebuildTree()
+        let count = outlineCoordinator.rootNodes.count
+        XCTAssertTrue(outlineCoordinator.outlineView(NSOutlineView(), acceptDrop: MockDraggingInfo(actionIDs: [id, "action.1"]), item: nil, childIndex: count))
+        XCTAssertEqual(coordinator.memberActionIDs(for: id), ["action.1", "action.2"])
+        XCTAssertEqual(coordinator.actions.map(\.id), ["action.3", "action.4", id, "action.1", "action.2"])
+    }
+
+    func testHoveringAISiblingRetainsGroupDestination() throws {
+        registerAIPresets()
+        let group = try XCTUnwrap(outlineCoordinator.rootNodes.first { $0.id == "builtin.aiTools" })
+        let outline = makeDropOutline()
+        let drag = MockDraggingInfo(actionID: group.children[0].id)
+        XCTAssertEqual(outlineCoordinator.outlineView(outline, validateDrop: drag, proposedItem: group.children[1], proposedChildIndex: NSOutlineViewDropOnItemIndex), .move)
+        XCTAssertEqual(outline.highlightedDropGroupID, group.id)
+    }
+
+    func testLeadingBottomEdgeMovesMemberAfterItsGroup() throws {
+        let id = try XCTUnwrap(coordinator.createGroup(title: "Group", iconName: "folder", memberActionIDs: ["action.1", "action.2"]))
+        outlineCoordinator.rebuildTree()
+        let rootIndex = try XCTUnwrap(outlineCoordinator.rootNodes.firstIndex { $0.id == id })
+        let group = outlineCoordinator.rootNodes[rootIndex]
+        let outline = makeDropOutline()
+        let lastRow = outline.row(forItem: try XCTUnwrap(group.children.last))
+        XCTAssertGreaterThanOrEqual(lastRow, 0)
+        let frame = outline.rect(ofRow: lastRow)
+        let point = NSPoint(x: frame.minX + 5, y: frame.maxY - 1)
+        let drag = MockDraggingInfo(actionID: "action.1")
+        drag.draggingLocation = outline.convert(point, to: nil)
+        XCTAssertEqual(outlineCoordinator.outlineView(outline, validateDrop: drag, proposedItem: group, proposedChildIndex: group.children.count), .move)
+        XCTAssertNil(outline.highlightedDropGroupID)
+        // AppKit forwards the retargeted root gap to acceptDrop.
+        XCTAssertTrue(outlineCoordinator.outlineView(outline, acceptDrop: drag, item: nil, childIndex: rootIndex + 1))
+        XCTAssertEqual(coordinator.memberActionIDs(for: id), ["action.2"])
+        let rootIDs = outlineCoordinator.rootNodes.compactMap { $0.action?.id }
+        XCTAssertEqual(rootIDs, [id, "action.1", "action.3", "action.4"])
+    }
+
+    func testIndentedBottomEdgeKeepsMemberInsideGroup() throws {
+        let id = try XCTUnwrap(coordinator.createGroup(title: "Group", iconName: "folder", memberActionIDs: ["action.1", "action.2"]))
+        outlineCoordinator.rebuildTree()
+        let group = try XCTUnwrap(outlineCoordinator.rootNodes.first { $0.id == id })
+        let outline = makeDropOutline()
+        let lastRow = outline.row(forItem: try XCTUnwrap(group.children.last))
+        let rowFrame = outline.rect(ofRow: lastRow)
+        let cellFrame = outline.frameOfCell(atColumn: 0, row: lastRow)
+        let drag = MockDraggingInfo(actionID: "action.1")
+        drag.draggingLocation = outline.convert(NSPoint(x: cellFrame.minX + 60, y: rowFrame.maxY - 1), to: nil)
+        XCTAssertEqual(outlineCoordinator.outlineView(outline, validateDrop: drag, proposedItem: group, proposedChildIndex: group.children.count), .move)
+        XCTAssertEqual(outline.highlightedDropGroupID, id)
+        XCTAssertTrue(outlineCoordinator.outlineView(outline, acceptDrop: drag, item: group, childIndex: group.children.count))
+        XCTAssertEqual(coordinator.memberActionIDs(for: id), ["action.2", "action.1"])
+    }
+
+    func testBottomGapHitRegionDistinguishesIndentation() {
+        let row = NSRect(x: 0, y: 100, width: 600, height: 40)
+        XCTAssertTrue(ActionsOutlineCoordinator.isRootGapAfterGroup(point: NSPoint(x: 10, y: 139), lastRow: row, childContentMinX: 50))
+        XCTAssertFalse(ActionsOutlineCoordinator.isRootGapAfterGroup(point: NSPoint(x: 100, y: 139), lastRow: row, childContentMinX: 50))
+        XCTAssertTrue(ActionsOutlineCoordinator.isRootGapAfterGroup(point: NSPoint(x: 100, y: 145), lastRow: row, childContentMinX: 50))
+        XCTAssertFalse(ActionsOutlineCoordinator.isRootGapAfterGroup(point: NSPoint(x: 10, y: 120), lastRow: row, childContentMinX: 50))
+    }
+
+    func testBlockInsertionCorrectsGapAndDeduplicates() {
+        XCTAssertEqual(ActionsOutlineCoordinator.inserting(["a", "b", "c", "d"], moving: ["a", "c", "a"], toChildIndex: 4), ["b", "d", "a", "c"])
+        XCTAssertEqual(ActionsOutlineCoordinator.inserting(["a", "b", "c"], moving: ["c", "a"], toChildIndex: 0), ["c", "a", "b"])
+        XCTAssertEqual(ActionsOutlineCoordinator.inserting(["a", "b", "c"], moving: ["a", "b"], toChildIndex: 2), ["a", "b", "c"])
+    }
 
     func testMovingACommandDownLandsWhereTheGapWas() {
         let members = ["a", "b", "c", "d"]
@@ -674,6 +978,212 @@ final class ActionsOutlineDropTests: XCTestCase {
         XCTAssertEqual(coordinator.actionGroupDefs[0].memberActionIDs, ["action.3", "action.1", "action.2"])
         XCTAssertEqual(coordinator.actions.map(\.id), [groupID, "action.3", "action.1", "action.2", "action.4"])
     }
+
+    func testOutlineNodeSignatureDistinguishesDisabledState() {
+        let dummy = DummyAction(id: "com.pkg.leafy.1", title: "Leafy 1")
+        let customization = ActionCustomizationManager(settingsStore: settingsStore)
+
+        let nodeEnabled = OutlineNode(
+            id: dummy.id,
+            kind: .standaloneAction(dummy),
+            customization: customization,
+            disabledActionIDs: [],
+            disabledPackages: []
+        )
+        let nodeDisabled = OutlineNode(
+            id: dummy.id,
+            kind: .standaloneAction(dummy),
+            customization: customization,
+            disabledActionIDs: [dummy.id],
+            disabledPackages: []
+        )
+        let nodePkgDisabled = OutlineNode(
+            id: dummy.id,
+            kind: .standaloneAction(dummy),
+            customization: customization,
+            disabledActionIDs: [],
+            disabledPackages: ["com.pkg.leafy"]
+        )
+
+        XCTAssertNotEqual(nodeEnabled.signature, nodeDisabled.signature)
+        XCTAssertNotEqual(nodeEnabled.signature, nodePkgDisabled.signature)
+        XCTAssertFalse(OutlineNode.treesEqual([nodeEnabled], [nodeDisabled]))
+        XCTAssertFalse(OutlineNode.treesEqual([nodeEnabled], [nodePkgDisabled]))
+    }
+
+    func testActionEnablementToggleIndividualActionInsideDisabledPackage() {
+        var disabledPackages: Set<String> = ["com.pkg.leafy"]
+        var disabledActionIDs: Set<String> = []
+
+        let action1 = DummyAction(id: "action.1", title: "Action 1")
+        let binding1 = ActionEnablement.binding(
+            for: action1,
+            disabledActionIDs: Binding(get: { disabledActionIDs }, set: { disabledActionIDs = $0 }),
+            disabledPackages: Binding(get: { disabledPackages }, set: { disabledPackages = $0 }),
+            coordinator: coordinator
+        )
+
+        XCTAssertFalse(binding1.wrappedValue)
+
+        // Turn action 1 on: package should be removed from disabledPackages, and siblings should be disabled
+        binding1.wrappedValue = true
+
+        XCTAssertFalse(disabledPackages.contains("com.pkg.leafy"))
+        XCTAssertFalse(disabledActionIDs.contains("action.1"))
+        // Siblings (action.2, action.3, action.4 from setUp) should now be in disabledActionIDs
+        XCTAssertTrue(disabledActionIDs.contains("action.2"))
+        XCTAssertTrue(disabledActionIDs.contains("action.3"))
+        XCTAssertTrue(disabledActionIDs.contains("action.4"))
+
+        // Action 1 is now enabled
+        XCTAssertTrue(binding1.wrappedValue)
+
+        // Now turn action 1 off
+        binding1.wrappedValue = false
+        XCTAssertTrue(disabledActionIDs.contains("action.1"))
+        XCTAssertFalse(binding1.wrappedValue)
+    }
+
+    func testPackageBindingEnableAndDisable() {
+        var disabledPackages: Set<String> = []
+        var disabledActionIDs: Set<String> = ["action.1", "action.2", "action.3", "action.4"]
+
+        let pkgBinding = ActionEnablement.packageBinding(
+            packageID: "com.pkg.leafy",
+            gatedReason: nil,
+            disabledPackages: Binding(get: { disabledPackages }, set: { disabledPackages = $0 }),
+            disabledActionIDs: Binding(get: { disabledActionIDs }, set: { disabledActionIDs = $0 }),
+            coordinator: coordinator
+        )
+
+        // When all actions are disabled, package reads as false
+        XCTAssertFalse(pkgBinding.wrappedValue)
+
+        // Turn package on: clears all action disables and clears disabledPackages
+        pkgBinding.wrappedValue = true
+        XCTAssertFalse(disabledPackages.contains("com.pkg.leafy"))
+        XCTAssertTrue(disabledActionIDs.isEmpty)
+        XCTAssertTrue(pkgBinding.wrappedValue)
+
+        // Turn package off: adds to disabledPackages
+        pkgBinding.wrappedValue = false
+        XCTAssertTrue(disabledPackages.contains("com.pkg.leafy"))
+        XCTAssertFalse(pkgBinding.wrappedValue)
+    }
+
+    func testActionEnablementToggleChildOfExtensionGroupEnablesParentGroup() {
+        let group1 = DummyAction(
+            id: "com.pkg.leafy.g1",
+            title: "Group 1",
+            chrome: ActionChrome(rowStyle: .actionGroup, popupBehavior: .showSubActions, source: .extensionPkg(packageID: "com.pkg.leafy"))
+        )
+        let group2 = DummyAction(
+            id: "com.pkg.leafy.g2",
+            title: "Group 2",
+            chrome: ActionChrome(rowStyle: .actionGroup, popupBehavior: .showSubActions, source: .extensionPkg(packageID: "com.pkg.leafy"))
+        )
+        let child2 = DummyAction(
+            id: "com.pkg.leafy.g2.child",
+            title: "Child 2",
+            chrome: ActionChrome(source: .extensionPkg(packageID: "com.pkg.leafy"))
+        )
+        coordinator.register(action: group1)
+        coordinator.register(action: group2)
+        coordinator.register(action: child2)
+
+        var disabledPackages: Set<String> = []
+        var disabledActionIDs: Set<String> = ["com.pkg.leafy.g1", "com.pkg.leafy.g2", "com.pkg.leafy.g2.child"]
+
+        let childBinding = ActionEnablement.binding(
+            for: child2,
+            disabledActionIDs: Binding(get: { disabledActionIDs }, set: { disabledActionIDs = $0 }),
+            disabledPackages: Binding(get: { disabledPackages }, set: { disabledPackages = $0 }),
+            coordinator: coordinator
+        )
+
+        XCTAssertFalse(childBinding.wrappedValue)
+        childBinding.wrappedValue = true
+
+        // Child's specific parent group (g2) must be un-disabled
+        XCTAssertFalse(disabledActionIDs.contains("com.pkg.leafy.g2"))
+        XCTAssertFalse(disabledActionIDs.contains("com.pkg.leafy.g2.child"))
+        // Other group (g1) remains disabled
+        XCTAssertTrue(disabledActionIDs.contains("com.pkg.leafy.g1"))
+        XCTAssertTrue(childBinding.wrappedValue)
+    }
+
+    func testActionEnablementToggleGroupContainerKeepsChildCommandsEnabled() {
+        let group = DummyAction(
+            id: "com.pkg.leafy.g1",
+            title: "Group 1",
+            chrome: ActionChrome(rowStyle: .actionGroup, popupBehavior: .showSubActions, source: .extensionPkg(packageID: "com.pkg.leafy"))
+        )
+        let child1 = DummyAction(
+            id: "com.pkg.leafy.g1.c1",
+            title: "Child 1",
+            chrome: ActionChrome(source: .extensionPkg(packageID: "com.pkg.leafy"))
+        )
+        let child2 = DummyAction(
+            id: "com.pkg.leafy.g1.c2",
+            title: "Child 2",
+            chrome: ActionChrome(source: .extensionPkg(packageID: "com.pkg.leafy"))
+        )
+        let standalone = DummyAction(
+            id: "com.pkg.leafy.standalone",
+            title: "Standalone",
+            chrome: ActionChrome(source: .extensionPkg(packageID: "com.pkg.leafy"))
+        )
+        coordinator.register(action: group)
+        coordinator.register(action: child1)
+        coordinator.register(action: child2)
+        coordinator.register(action: standalone)
+
+        var disabledPackages: Set<String> = ["com.pkg.leafy"]
+        var disabledActionIDs: Set<String> = []
+
+        let groupBinding = ActionEnablement.binding(
+            for: group,
+            disabledActionIDs: Binding(get: { disabledActionIDs }, set: { disabledActionIDs = $0 }),
+            disabledPackages: Binding(get: { disabledPackages }, set: { disabledPackages = $0 }),
+            coordinator: coordinator
+        )
+
+        XCTAssertFalse(groupBinding.wrappedValue)
+        groupBinding.wrappedValue = true
+
+        // Package un-disabled
+        XCTAssertFalse(disabledPackages.contains("com.pkg.leafy"))
+        // Group container un-disabled
+        XCTAssertFalse(disabledActionIDs.contains("com.pkg.leafy.g1"))
+        // Group children must NOT be disabled
+        XCTAssertFalse(disabledActionIDs.contains("com.pkg.leafy.g1.c1"))
+        XCTAssertFalse(disabledActionIDs.contains("com.pkg.leafy.g1.c2"))
+        // Sibling outside the group is disabled
+        XCTAssertTrue(disabledActionIDs.contains("com.pkg.leafy.standalone"))
+        XCTAssertTrue(groupBinding.wrappedValue)
+    }
+
+    func testAcceptDropBeforePackageHeaderPlacesActionBeforePackageActions() {
+        _ = outlineCoordinator.rebuildTree()
+        let standaloneAction = DummyAction(
+            id: "standalone.other",
+            title: "Other",
+            chrome: ActionChrome(badge: .none, rowStyle: .standard, popupBehavior: .perform, source: .builtin)
+        )
+        coordinator.register(action: standaloneAction)
+        _ = outlineCoordinator.rebuildTree()
+
+        guard let headerIndex = outlineCoordinator.rootNodes.firstIndex(where: { $0.id == "pkg.com.pkg.leafy" }) else {
+            return XCTFail("Package header node not found")
+        }
+
+        let outlineView = NSOutlineView()
+        let info = MockDraggingInfo(actionID: "standalone.other")
+        let success = outlineCoordinator.outlineView(outlineView, acceptDrop: info, item: nil, childIndex: headerIndex)
+        XCTAssertTrue(success)
+
+        XCTAssertEqual(coordinator.actions.first?.id, "standalone.other")
+    }
 }
 
 private final class MockDraggingInfo: NSObject, NSDraggingInfo {
@@ -685,11 +1195,19 @@ private final class MockDraggingInfo: NSObject, NSDraggingInfo {
     let draggingPasteboard: NSPasteboard
 
     @MainActor
-    init(actionID: String) {
+    convenience init(actionID: String) {
+        self.init(actionIDs: [actionID])
+    }
+
+    @MainActor
+    init(actionIDs: [String]) {
         let pb = NSPasteboard.withUniqueName()
-        let item = NSPasteboardItem()
-        item.setString(actionID, forType: NSPasteboard.PasteboardType("com.openclip.action-id"))
-        pb.writeObjects([item])
+        let items = actionIDs.map { id in
+            let item = NSPasteboardItem()
+            item.setString(id, forType: NSPasteboard.PasteboardType("com.openclip.action-id"))
+            return item
+        }
+        pb.writeObjects(items)
         self.draggingPasteboard = pb
     }
 

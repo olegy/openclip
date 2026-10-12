@@ -34,6 +34,21 @@ The subsystem consists of three primary components:
 2. **`SelectionRetrievalCoordinator`** (from `OpenSelection` package via [`OpenSelectionBridge`](../../Sources/OpenClip/Platform/Selection/OpenSelectionBridge.swift)): Applies the gate, resolves the app's retrieval mode from [`AppPolicyContext`](../../Sources/Core/Rules/AppRule.swift), and routes to the matching strategy.
 3. **Context assembly**: `MacSelectionMonitor` resolves app rules via [`RuleEngine`](../../Sources/Core/Rules/RuleEngine.swift), builds a [`SelectionContext`](../../Sources/Core/Selection/SelectionContext.swift), and notifies subscriber callbacks (such as `PopupWindowController`).
 
+The monitor snapshots the window under a mouse press and rejects the release if that window
+moved, resized or disappeared. This avoids retrieving an old selection from the editor that
+remains focused while its title bar is dragged. New presses and switches away from the source
+process cancel pending automatic reads and clear the shortcut cache. Queued notifications for
+apps no longer frontmost, the source app's own activation, and OpenClip's popup activation are
+ignored. The monitor rechecks the source PID before caching or presenting results after async
+work. At the copy boundary, OpenSelection's [`AutomaticCopyCapture`](https://github.com/ganeshmshetty/OpenSelection#passive-monitoring)
+requires an enabled Command-C menu shortcut, then rechecks cancellation, the frontmost process
+and the overlay guard before invoking the copy trigger. The bounded menu probe runs off the
+main actor. Native AX retrieval and the explicit hotkey use their existing behavior. See
+[current limitations](known-debt.md#selection-retrieval).
+
+The shared capture and window-geometry implementations live in OpenSelection. OpenClip retains
+only its app-specific monitor lifecycle (including hold-to-trigger and cached selections).
+
 ---
 
 ## Retrieval: Resolver, Gate, and Strategies
@@ -107,7 +122,7 @@ Both copy modes run through [`PasteboardCopyEngine`](../../Sources/OpenClip/Plat
 
 ### Per-app routing (default catalog)
 
-`DefaultAppRules.catalog` assigns modes to app groups; `RuleEngine.resolvePolicies` matches the frontmost app's bundle id (with `.*` prefix / `*` wildcards) against default + user rules. User rules in `~/.openclip/rules.json` override per-key — see `docs/user-guide/app-rules.md` for the JSON keys.
+`DefaultAppRules.catalog` assigns modes to app groups; `RuleEngine.resolvePolicies` matches the frontmost app's identity (bundle ID, or a `process:`/`path:` identifier for bundle-less apps) against default + user rules (with `.*` prefix / `*` wildcards). User rules in `~/.openclip/rules.json` override per-key — see `docs/user-guide/app-rules.md` for the JSON keys.
 
 | Group | Target Application Category | Mode |
 | :--- | :--- | :--- |
@@ -124,9 +139,10 @@ Both copy modes run through [`PasteboardCopyEngine`](../../Sources/OpenClip/Plat
 
 ## Shortcut Resolution & Clipboard Fallback
 
-The global toggle shortcut ([`HotkeyManager`](../../Sources/OpenClip/Platform/HotkeyManager.swift)) resolves its input in `resolvePaletteTrigger` (fork behavior; upstream reused the passive monitor's cached selection):
+The global toggle shortcut ([`HotkeyManager`](../../Sources/OpenClip/Platform/HotkeyManager.swift)) resolves its input through `collectTrigger(allowsEmptyText: true)`, the same on-demand path as per-action hotkeys (since 1.8.x; the fork's `resolvePaletteTrigger` wraps it):
 
-1. **On-demand read**: after the gating checks, the hotkey reads the frontmost app's selection through `SelectionRetrievalCoordinator.retrieveDetails` (copy fallback allowed unless a foreign overlay is under the cursor or the focused text control reports a collapsed caret — `CollapsedCaretProbe`, so editors that copy the current line on an empty ⌘C don't pass that line off as the selection — no copy evidence required), with the paste probe running alongside. The palette opens once the read returns; html/rtf/flavors are kept. The read does not wait for the hotkey's modifiers to be released: synthetic ⌘C carries explicit flags, and measured reads took 10–65 ms (to palette: 15–65 ms) across native, browser, Electron and editor apps with ⌃⌥⇧⌘ still held. A second press while a read is in flight is ignored.
+1. **On-demand read**: after the gating checks (`triggerAllowed`), the hotkey reuses a pending monitored selection if there is one (never in the fork — the monitor does not run) and otherwise reads the frontmost app's selection through `SelectionRetrievalCoordinator.retrieveResponse` (copy fallback allowed, no copy evidence required), with the paste probe running alongside. The synthetic ⌘C is authorized only while the target app is still frontmost and the request is current, so a read whose target changed is dropped. The palette opens once the read returns; html/rtf/flavors are kept. A second press while a read is in flight cancels it.
+   > **Fork note:** when the focused text control reports a collapsed caret (`CollapsedCaretProbe`), the palette's read sends no ⌘C (`ForkBehavior.collapsedCaretSkipsCopy`), so editors that copy the current line on an empty ⌘C don't pass that line off as the selection. Per-action hotkeys keep upstream's copy.
 2. **Clipboard Fallback**: If the read returns no substantial text, OpenClip falls back to the current contents of `NSPasteboard.general` so the search palette still has input to act on.
    - The context is flagged `SelectionContext.isClipboardFallback`; `PopupWindowController.show` filters available actions down to **Paste** (and AI Tools launcher).
      > **Inaccurate (fork note):** only actions whose `ActionChrome.requiresLiveSelection` is true
@@ -134,7 +150,11 @@ The global toggle shortcut ([`HotkeyManager`](../../Sources/OpenClip/Platform/Ho
      > clipboard text.
 3. **Empty Context Fallback**: If the clipboard is also empty, an empty selection context is created with the frontmost app's identity, allowing standalone actions to run.
 
-Passive selection monitoring continues even when "Appear Automatically" is disabled (`isAppEnabled == false` or `hotkeyOnly: true`), updating `latestSelection` and pre-warming the search index in the background so pressing the shortcut opens the palette with zero perceptual delay. `isAppEnabled` is the global form of the per-app `hotkeyOnly` rule: it gates only the monitor's passive (mouse-release/keyboard) auto-show. The explicit hold gesture delivers straight from `handleMouseDown` and stays unaffected.
+Passive selection monitoring continues even when "Appear Automatically" is disabled (`isAppEnabled == false` or `hotkeyOnly: true`), updating `latestSelection` and pre-warming the search index in the background so pressing the shortcut opens the palette with zero perceptual delay. Both passive mouse and keyboard paths withhold synthetic copy fallback under those settings; native AX reads still populate the cache. The explicit hold gesture delivers straight from `handleMouseDown` and stays unaffected by `isAppEnabled`.
+
+The hold's editable-field lookup runs off the main actor through `SelectionEditabilityProbe`,
+bound to the original source PID and one `axReadTimeout` deadline. If the lookup times out,
+clipboard fallback is refused; the UI thread keeps processing events.
 
 > **Fork note:** not in this fork — the monitor never runs (see the fork note at the top), so there
 > is no cache or index pre-warming; the palette builds its index when it opens.
@@ -146,3 +166,10 @@ Passive selection monitoring continues even when "Appear Automatically" is disab
 - **No Clipboard Pollution (AX modes)**: `ax-text-control`, `ax-web-area`, and `browser-script` never write to `NSPasteboard` — they read the live accessibility tree or the browser's AppleScript bridge.
 - **Copy modes are archive-and-restore**: `menu-copy`/`keyboard-copy` temporarily place the selected text on the general pasteboard, then restore the archived items tagged with the nspasteboard transient markers so clipboard managers don't treat the restore as a user copy.
 - **Ignored Fields**: Secure text fields (such as password inputs or masked text areas) do not expose `kAXSelectedTextAttribute` through AX APIs, ensuring password security.
+
+## Inline Action Match Context
+
+Inline result evaluation receives the same per-action regex match context as click execution. The
+selection remains available as `openclip.input.text`, while `openclip.input.matchedText` and
+`openclip.input.captures` carry the regex match and capture groups. This lets inline actions such as
+Currency Converter evaluate a value embedded in a longer selected passage.

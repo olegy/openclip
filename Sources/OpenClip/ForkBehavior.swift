@@ -15,8 +15,9 @@ enum ForkBehavior {
 
     /// Upstream anchors the search palette and the result card on the cursor, and the card sizes
     /// itself to its text. The fork opens both Spotlight-style — centered, a little above the
-    /// middle of the screen with the mouse — and gives the card the palette's size. The loading
-    /// toast centers on the palette's frame, so it follows.
+    /// middle of the screen with the mouse — and gives the card the palette's size. Toasts tied to
+    /// the popup (the loading toast among them) center on its frame instead of upstream's pointer
+    /// placement (`ToastPanelController.show`), so they follow.
     static let spotlightPlacement = true
 
     /// Upstream's menu bar menu offers "Pause in <App>" and a timed "Pause" submenu, which made
@@ -29,9 +30,9 @@ enum ForkBehavior {
     /// it there; Settings → About still has it.
     static let reportIssueMenuItem = false
 
-    /// Upstream's palette footer counts the matching actions. The fork shows where the text
-    /// comes from instead — a selection/clipboard switch (Tab toggles it when both were read) —
-    /// and the start of that text (`PaletteSourceFooter`).
+    /// Upstream's palette offers the clipboard as an alternate source (an icon in the search field
+    /// and Tab). The fork's footer also shows where the text comes from — a selection/clipboard
+    /// switch driving upstream's toggle — and the start of that text (`PaletteSourceFooter`).
     static let paletteSourceFooter = true
 
     /// Upstream's palette row ends with a ⌘-digit hint (first nine rows). The fork shows the

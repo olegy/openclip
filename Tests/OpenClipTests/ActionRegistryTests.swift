@@ -78,6 +78,23 @@ final class ActionRegistryTests: XCTestCase {
         XCTAssertEqual(context.selection.text, "hello")
         XCTAssertEqual(context.modifiers, .shift)
     }
+
+    @MainActor
+    func testOCRContextOffersCopyButExcludesLiveSelectionActions() {
+        let registry = ActionRegistry.shared
+        registry.register(builtIns: [CopyAction(), CutAction(), PasteAction()])
+        let selection = SelectionContext(
+            text: "recognized words",
+            sourceApp: AppIdentity(bundleIdentifier: "com.test", localizedName: "Test"),
+            source: .ocr
+        )
+        let available = registry.availableActions(for: ActionContext(selection: selection, modifiers: []))
+
+        XCTAssertTrue(available.contains { $0.id == "builtin.copy" })
+        XCTAssertFalse(available.contains { $0.id == "builtin.cut" })
+        XCTAssertFalse(available.contains { $0.id == "builtin.paste" })
+        XCTAssertEqual(selection.with(cursorPosition: CGPoint(x: 2, y: 3)).source, .ocr)
+    }
     
     @MainActor
     func testDisabledActionsAreFiltered() {
@@ -209,7 +226,7 @@ final class ActionRegistryTests: XCTestCase {
     }
 
     @MainActor
-    func testAIChromeActionsExcludedFromBarButIncludedInSearchCatalog() {
+    func testAIPresetsRemainInAvailableCatalogForGroupResolution() {
         // Own store: `ActionRegistry()` reads the real preferences domain (the test host shares
         // OpenClip's bundle id), so a developer disabling Copy in the app would fail this test.
         let registry = ActionRegistry(settingsStore: MemorySettingsStore())
@@ -222,9 +239,8 @@ final class ActionRegistryTests: XCTestCase {
         let context = ActionContext(selection: selection, modifiers: [])
         let available = registry.availableActions(for: context)
 
-        // AI preset actions never flood the popup bar (the reorderable AI Tools action is the
-        // bar's entry point), but the palette still discovers them.
-        XCTAssertFalse(available.contains { $0.id == "ai.preset.proofread" })
+        // The popup resolves group children from this catalog before hiding them at the top level.
+        XCTAssertTrue(available.contains { $0.id == "ai.preset.proofread" })
         XCTAssertTrue(available.contains { $0.id == "mock.normal" })
         XCTAssertTrue(registry.searchCatalog(for: context).contains { $0.id == "ai.preset.proofread" })
     }
@@ -576,6 +592,88 @@ final class ActionRegistryTests: XCTestCase {
         )
     }
 
+    /// Regression test: unregistering an action (e.g. when an extension is disabled, gated,
+    /// Regression test: an extension action transitioning through gated placeholder
+    /// must NOT prune action.order in SettingsStore. When re-enabled, the action
+    /// must retain its customized order rather than shifting to the end.
+    @MainActor
+    func testUnregisteringActionDoesNotPruneSavedActionOrder() {
+        let store = MemorySettingsStore()
+        let savedOrder = ["builtin.search", "ext.local.action", "builtin.copy"]
+        store.set(.actionOrder, value: savedOrder)
+        let registry = ActionRegistry(settingsStore: store)
+
+        let search = MockAction(id: "builtin.search", shouldBeEnabled: true)
+        let localAction = MockAction(id: "ext.local.action", shouldBeEnabled: true, chrome: ActionChrome(source: .extensionPkg(packageID: "ext.local")))
+        let copy = MockAction(id: "builtin.copy", shouldBeEnabled: true)
+
+        registry.register(action: search)
+        registry.register(action: localAction)
+        registry.register(action: copy)
+
+        XCTAssertEqual(registry.actions.map(\.id), ["builtin.search", "ext.local.action", "builtin.copy"])
+
+        // Action transitions to gated placeholder (e.g. when gated or reloading)
+        let gated = GatedExtensionAction(
+            packageID: "ext.local",
+            title: "Local Ext",
+            icon: .symbol("star"),
+            chrome: ActionChrome(source: .extensionPkg(packageID: "ext.local")),
+            reason: .notEnabled
+        )
+        registry.register(action: gated)
+        registry.unregister(actionID: "ext.local.action")
+
+        // Saved order must remain untouched because ext.local is still installed
+        XCTAssertEqual(store.get(.actionOrder), savedOrder)
+
+        // Action is re-registered (turned back on)
+        registry.register(action: localAction)
+        registry.unregister(actionID: "ext.local")
+
+        // Must retain its exact saved position and NOT shift to the end
+        XCTAssertEqual(registry.actions.map(\.id), ["builtin.search", "ext.local.action", "builtin.copy"])
+    }
+
+    /// Regression test: an extension transitioning between gated placeholder and active action
+    /// must maintain its position, matching on package identifier when action ID differs.
+    @MainActor
+    func testExtensionActionRetainsPositionWhenTransitioningBetweenGatedAndActive() {
+        let store = MemorySettingsStore()
+        let savedOrder = ["builtin.search", "ext.local", "builtin.copy"]
+        store.set(.actionOrder, value: savedOrder)
+        let registry = ActionRegistry(settingsStore: store)
+
+        let search = MockAction(id: "builtin.search", shouldBeEnabled: true)
+        let copy = MockAction(id: "builtin.copy", shouldBeEnabled: true)
+        let gated = GatedExtensionAction(
+            packageID: "ext.local",
+            title: "Local Ext",
+            icon: .symbol("star"),
+            chrome: ActionChrome(source: .extensionPkg(packageID: "ext.local")),
+            reason: .notEnabled
+        )
+
+        registry.register(action: search)
+        registry.register(action: gated)
+        registry.register(action: copy)
+
+        // Gated placeholder respects package order
+        XCTAssertEqual(registry.actions.map(\.id), ["builtin.search", "ext.local", "builtin.copy"])
+
+        // User enables it -> real action is registered, old gated placeholder is unregistered
+        let realAction = MockAction(
+            id: "ext.local.action.0",
+            shouldBeEnabled: true,
+            chrome: ActionChrome(source: .extensionPkg(packageID: "ext.local"))
+        )
+        registry.register(action: realAction)
+        registry.unregister(actionID: "ext.local")
+
+        // Real action inherits package rank from saved order and does not shift to end
+        XCTAssertEqual(registry.actions.map(\.id), ["builtin.search", "ext.local.action.0", "builtin.copy"])
+    }
+
     /// A disabled AI preset is gone from the palette too — the toggle in AI → Actions is the same
     /// promise as the one in Preferences → Actions.
     @MainActor
@@ -707,4 +805,3 @@ final class ActionRegistryTests: XCTestCase {
         _ = cancellable
     }
 }
-

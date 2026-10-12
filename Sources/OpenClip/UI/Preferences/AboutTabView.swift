@@ -12,6 +12,7 @@ import Core
 @MainActor
 struct AboutTab: View {
     @State private var isExporting = false
+    @ObservedObject private var extensionUpdateManager = ExtensionUpdateManager.shared
     @ObservedObject private var updateManager = AppUpdateManager.shared
 
     private var version: String {
@@ -28,31 +29,11 @@ struct AboutTab: View {
                 // un-indented on purpose so upstream edits to it still merge cleanly.
                 if AppUpdateManager.isEnabled {
                 SettingsCard("Software Updates") {
-                    if let newVersion = updateManager.availableUpdateVersion {
-                        updateAvailableRow(version: newVersion)
-                        SettingsDivider()
-
-                        if let notes = updateManager.availableUpdateReleaseNotes, !notes.isEmpty {
-                            DisclosureGroup("Release Notes") {
-                                ScrollView {
-                                    Text(LocalizedStringKey(notes))
-                                        .font(.callout)
-                                        .textSelection(.enabled)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.vertical, 4)
-                                }
-                                .frame(maxHeight: 140)
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            SettingsDivider()
-                        }
-                    }
-
                     SettingsToggleRow(
                         title: "Automatically Download Updates",
                         isOn: $updateManager.automaticallyDownloadsUpdates
                     )
+                    .disabled(!updateManager.updatesEnabled)
 
                     SettingsDivider()
 
@@ -60,40 +41,35 @@ struct AboutTab: View {
                         title: "Notify on Update",
                         isOn: $updateManager.notifyOnUpdate
                     )
+                    .disabled(!updateManager.updatesEnabled)
 
                     SettingsDivider()
 
                     SettingsRow(
                         title: "Check for Updates",
-                        subtitle: updateChannelSubtitle ?? lastCheckedSubtitle
+                        subtitle: updateStatusSubtitle
                     ) {
-                        HStack(spacing: 10) {
-                            Picker("", selection: $updateManager.updateChannel) {
-                                Text("Stable").tag(UpdateChannel.stable)
-                                Text("Beta").tag(UpdateChannel.beta)
-                            }
-                            .labelsHidden()
-                            .pickerStyle(.segmented)
-                            .frame(width: 150)
-                            .accessibilityLabel("Update Channel")
-
-                            Button {
-                                updateManager.checkForUpdates()
-                            } label: {
-                                Image(systemName: "arrow.triangle.2.circlepath")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(SettingsDesignTokens.primaryText)
-                                    .frame(width: 24, height: 24)
-                            }
-                            .buttonStyle(.plain)
-                            .settingsGlassCircle()
-                            .contentShape(Circle())
-                            .disabled(!updateManager.canCheckForUpdates)
-                            .accessibilityLabel("Check Now")
-                            .help("Check Now")
+                        Button(updateActionTitle) {
+                            updateManager.checkForUpdates()
                         }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(SettingsDesignTokens.primaryText)
+                        .padding(.horizontal, 10)
+                        .frame(height: 24)
+                        .settingsGlassCapsule()
+                        .contentShape(Capsule())
+                        .disabled(!updateManager.canPresentUpdate)
+                        .accessibilityLabel(updateActionTitle)
                     }
                 }
+                }
+
+                SettingsCard("Extension Updates") {
+                    SettingsToggleRow(
+                        title: "Automatically Update Extensions",
+                        isOn: $extensionUpdateManager.automaticallyUpdatesExtensions
+                    )
                 }
 
                 // Links
@@ -103,6 +79,8 @@ struct AboutTab: View {
                     linkRow("Documentation", systemImage: "book", url: "https://www.getopenclip.app/docs")
                     SettingsDivider()
                     linkRow("Support", systemImage: "questionmark.circle", url: "https://www.getopenclip.app/support")
+                    SettingsDivider()
+                    linkRow("Discord", systemImage: "bubble.left.and.bubble.right", url: "https://discord.gg/acYYdzM7jR")
                     SettingsDivider()
                     linkRow("GitHub", systemImage: "chevron.left.forwardslash.chevron.right", url: "https://github.com/ganeshmshetty/openclip")
                     SettingsDivider()
@@ -182,6 +160,7 @@ struct AboutTab: View {
                 HStack(spacing: 4) {
                     Image(systemName: "heart.fill")
                         .font(.caption.weight(.semibold))
+                        .foregroundStyle(.red)
                     Text(String(localized: "Donate"))
                     Image(systemName: "arrow.up.right")
                         .font(.caption2.weight(.semibold))
@@ -196,60 +175,23 @@ struct AboutTab: View {
         .padding(.bottom, 12)
     }
 
-    private func updateAvailableRow(version newVersion: String) -> some View {
-        SettingsRow(
-            title: updateManager.isUpdateStagedForQuitInstall
-                ? "Update Ready"
-                : "Update Available",
-            subtitle: LocalizedStringKey("Version \(newVersion)")
-        ) {
-            HStack(spacing: 10) {
-                if #available(macOS 26.0, *) {
-                    Button(String(localized: "Update Now")) {
-                        updateManager.installUpdateNow()
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(SettingsDesignTokens.glassButtonBlue)
-                    .padding(.horizontal, 10)
-                    .frame(height: 24)
-                    .background(.ultraThinMaterial, in: .capsule)
-                    .glassEffect(.regular.tint(SettingsDesignTokens.glassButtonBlue.opacity(0.18)).interactive(), in: .capsule)
-                    .contentShape(Capsule())
+    private var updateActionTitle: String {
+        updateManager.availableUpdateVersion == nil
+            ? String(localized: "Check Now")
+            : String(localized: "View Update…")
+    }
 
-                    Button(String(localized: "On Quit")) {
-                        updateManager.installUpdateOnQuit()
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(SettingsDesignTokens.primaryText)
-                    .padding(.horizontal, 10)
-                    .frame(height: 24)
-                    .settingsGlassCapsule()
-                    .contentShape(Capsule())
-                } else {
-                    Button("Update Now") {
-                        updateManager.installUpdateNow()
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button("On Quit") {
-                        updateManager.installUpdateOnQuit()
-                    }
-                }
-            }
+    private var updateStatusSubtitle: LocalizedStringKey? {
+        guard updateManager.updatesEnabled else {
+            return "Updates are disabled in development builds."
         }
-    }
-
-    private var lastCheckedSubtitle: LocalizedStringKey? {
-        guard let lastCheck = updateManager.lastUpdateCheckDate else { return nil }
-        return LocalizedStringKey("Last checked \(Self.shortTimeAgo(lastCheck))")
-    }
-
-    private var updateChannelSubtitle: LocalizedStringKey? {
-        updateManager.updateChannel == .beta
-            ? "Beta builds include features that are still being tested."
-            : nil
+        if let newVersion = updateManager.availableUpdateVersion {
+            return LocalizedStringKey("Version \(newVersion)")
+        }
+        guard let lastCheck = updateManager.lastUpdateCheckDate else {
+            return nil
+        }
+        return LocalizedStringKey("Last checked: \(Self.shortTimeAgo(lastCheck))")
     }
 
     private func linkRow(_ title: LocalizedStringKey, systemImage: String, url: String) -> some View {
@@ -319,3 +261,4 @@ struct AboutTab: View {
         }
     }
 }
+

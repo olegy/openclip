@@ -1,6 +1,7 @@
 import XCTest
 import ApplicationServices
 import CoreGraphics
+import os
 @testable import Core
 @testable import OpenClip
 
@@ -819,7 +820,7 @@ final class SelectionRetrievalCoordinatorTests: XCTestCase {
     /// Regression: the permit was released only when the underlying blocking inspect returned,
     /// so one slow/hung app kept every subsequent popup missing for seconds. The permit must free
     /// at the caller's watchdog deadline even while that worker is still parked.
-    func testInspectPermitFreesAtWatchdogDeadlineWhileWorkerStillHung() async {
+    func testFreshInspectUsesRemainingCapacityWhileWorkerStillHung() async {
         // Worker #1 parks far past axReadTimeout (0.5s): its caller gets nil from the watchdog
         // while the AX queue thread stays blocked on the semaphore.
         let zombieUnblock = DispatchSemaphore(value: 0)
@@ -907,7 +908,7 @@ final class SelectionRetrievalCoordinatorTests: XCTestCase {
 
     /// A blocked Edit ▸ Copy press must release `inspectGate` at `axReadTimeout`.
     /// A new inspect must then complete immediately.
-    func testMenuCopyPressPermitFreesAtWatchdogDeadlineWhileWorkerStillHung() async {
+    func testFreshInspectUsesRemainingCapacityWhileMenuWorkerStillHung() async {
         let pressStarted = expectation(description: "hung menu press started")
         let zombieUnblock = DispatchSemaphore(value: 0)
         defer { zombieUnblock.signal() }
@@ -954,7 +955,7 @@ final class SelectionRetrievalCoordinatorTests: XCTestCase {
 
     /// Four blocked Edit ▸ Copy presses must not keep `inspectGate` full.
     /// After `axReadTimeout`, a new inspect must succeed.
-    func testFourHungMenuCopyPressesDoNotPermanentlyLockOutInspect() async {
+    func testHungMenuWorkersHoldPermitsUntilTheyExit() async {
         let starts = PressStartSignal()
         let zombieUnblock = DispatchSemaphore(value: 0)
         defer {
@@ -1002,6 +1003,13 @@ final class SelectionRetrievalCoordinatorTests: XCTestCase {
 
         try? await Task.sleep(nanoseconds: UInt64((Constants.axReadTimeout + 0.1) * 1_000_000_000))
 
+        let stillBlocked = await freshCoordinator.retrieve(
+            for: AppIdentity(bundleIdentifier: "com.test.app"), policy: inspectPolicy, cursor: .unknown
+        )
+        XCTAssertNil(stillBlocked, "Timed-out workers must continue to hold the cap")
+        for _ in 0..<Constants.axMaxConcurrentInspects { zombieUnblock.signal() }
+        // Allow the returning workers to execute their permit-release defer.
+        try? await Task.sleep(nanoseconds: 50_000_000)
         let recoveredStart = Date()
         let recovered = await freshCoordinator.retrieve(
             for: AppIdentity(bundleIdentifier: "com.test.app"),
@@ -1082,6 +1090,47 @@ final class SelectionRetrievalCoordinatorTests: XCTestCase {
         XCTAssertTrue(pptScript?.contains("com.microsoft.Powerpoint") == true)
         XCTAssertTrue(pptScript?.contains("selection of active window") == true)
         XCTAssertTrue(pptScript?.contains("selection type text") == true)
+    }
+
+    func testOpenClipDiagnosticsSinkRecordsCompletionWithoutDuplicatingReports() async {
+        final class TestLogSink: LogSink, @unchecked Sendable {
+            let messages = OSAllocatedUnfairLock<[String]>(initialState: [])
+            func record(date: Date, category: String, level: Core.LogLevel, message: String) {
+                if category == "selection" {
+                    messages.withLock { $0.append(message) }
+                }
+            }
+        }
+
+        let previousSinks = Log.currentSinks()
+        let testSink = TestLogSink()
+        Log.addSink(testSink)
+        defer {
+            Log.restoreSinks(previousSinks)
+            DiagnosticsHub.shared.reset()
+        }
+
+        let diagnosticsSink = OpenClipDiagnosticsSink(minimumLevel: .trace)
+        DiagnosticsHub.shared.reset()
+        DiagnosticsHub.shared.install(diagnosticsSink)
+        DiagnosticsHub.shared.setReportMode(.always)
+
+        let trace = SelectionTrace.create(trigger: .mouseUp)
+        trace.log(.info, .cascade, "Testing diagnostic event", fields: ["testKey": .token("testValue")])
+
+        trace.complete(status: .selection, configured: .axTextControl, winner: .axTextControl)
+        let report = trace.buildReport(outcome: .selection(strategy: .axTextControl, presence: .nonEmpty))
+        DiagnosticsHub.shared.emitReport(report)
+
+        await DiagnosticsHub.shared.flush()
+
+        let msgs = testSink.messages.withLock { $0 }.filter { $0.contains("[\(trace.id)]") }
+
+        XCTAssertTrue(msgs.contains { $0.contains("Testing diagnostic event") && $0.contains("testKey=testValue") })
+        XCTAssertEqual(msgs.filter { $0.contains("selection completed") }.count, 1)
+        XCTAssertTrue(msgs.contains { $0.contains("outcome=selection") && $0.contains("winningStrategy=ax-text-control") })
+        XCTAssertFalse(msgs.contains { $0.contains("[CascadeReport]") })
+        XCTAssertEqual(msgs.count, 2)
     }
 }
 

@@ -16,6 +16,7 @@ struct GeneralTab: View {
     @State private var isAppEnabled: Bool
     @State private var showMenuBarIcon: Bool
     @State private var isMouseHoldEnabled: Bool
+    @Setting(SettingKey.captureTextAutoCopy) private var captureTextAutoCopy
     @State private var fileSaveLocation: String
     @ObservedObject private var launchManager = LaunchAtLoginManager.shared
     @ObservedObject private var permissionManager = PermissionManager.shared
@@ -31,8 +32,8 @@ struct GeneralTab: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                // Everything that decides how the popup is summoned sits together
-                SettingsCard("Triggers") {
+                // Everything that decides how the popup and palette are summoned
+                SettingsCard("Selection & Mouse") {
                     SettingsToggleRow(
                         title: "Appear Automatically",
                         subtitle: "Show the popup as soon as text is selected.",
@@ -44,13 +45,8 @@ struct GeneralTab: View {
                         DefaultSettingsStore.shared.set(.isAppEnabled, value: newValue)
                         NotificationCenter.default.post(name: Notification.Name("OpenClipEnabledStateChanged"), object: newValue)
                     }
-                    .onReceive(NotificationCenter.default.publisher(for: Notification.Name("OpenClipEnabledStateChanged"))) { notification in
-                        isAppEnabled = (notification.object as? Bool) ?? DefaultSettingsStore.shared.get(.isAppEnabled)
-                    }
-                    .hiddenInFork(!ForkBehavior.passiveSelectionMonitoring)
 
                     SettingsDivider()
-                        .hiddenInFork(!ForkBehavior.passiveSelectionMonitoring)
 
                     SettingsToggleRow(
                         title: "Hold Mouse to Trigger",
@@ -62,18 +58,44 @@ struct GeneralTab: View {
                     .onChange(of: isMouseHoldEnabled) { _, newValue in
                         DefaultSettingsStore.shared.set(.isMouseHoldEnabled, value: newValue)
                     }
-                    .hiddenInFork(!ForkBehavior.passiveSelectionMonitoring)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: Notification.Name("OpenClipEnabledStateChanged"))) { notification in
+                    isAppEnabled = (notification.object as? Bool) ?? DefaultSettingsStore.shared.get(.isAppEnabled)
+                }
+                // Fork: both settings only configure the passive monitor, which never starts.
+                .hiddenInFork(!ForkBehavior.passiveSelectionMonitoring)
 
-                    SettingsDivider()
-                        .hiddenInFork(!ForkBehavior.passiveSelectionMonitoring)
-
+                SettingsCard("Shortcuts") {
                     SettingsRow(
-                        title: "Keyboard Shortcut",
-                        subtitle: "Summon the popup for whatever is selected.",
-                        systemImage: "keyboard",
+                        title: "Command Palette",
+                        subtitle: "Open the search palette for selected text or clipboard.",
+                        systemImage: "command",
                         plainIcon: true
                     ) {
                         Shortcut(for: .togglePopup)
+                    }
+
+                    SettingsDivider()
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        SettingsRow(
+                            title: "Capture Text",
+                            subtitle: "Select a screen region to extract text.",
+                            systemImage: "viewfinder",
+                            plainIcon: true
+                        ) {
+                            Shortcut(for: .captureText)
+                        }
+
+                        Toggle("Copy to Clipboard Automatically", isOn: $captureTextAutoCopy)
+                            .toggleStyle(.checkbox)
+                            .controlSize(.small)
+                            .font(.system(size: 12))
+                            .foregroundStyle(SettingsDesignTokens.secondaryText)
+                            .help(String(localized: "The action popup still opens after capture."))
+                            .padding(.leading, SettingsDesignTokens.dividerInsetLeading + 4)
+                            .padding(.trailing, SettingsDesignTokens.sectionCardPaddingH)
+                            .padding(.bottom, SettingsDesignTokens.sectionCardPaddingV)
                     }
                 }
 
@@ -178,8 +200,7 @@ struct GeneralTab: View {
                                                     : String(localized: "Access Required"))
 
                             Button(String(localized: "Open Settings")) {
-                                let shouldReset = !permissionManager.isAccessibilityGranted
-                                permissionManager.requestAccessibilityPermission(proactivelyResetStaleTCC: shouldReset)
+                                permissionManager.requestAccessibilityPermission()
                             }
                             .buttonStyle(.plain)
                             .font(.system(size: 11.5, weight: .medium))

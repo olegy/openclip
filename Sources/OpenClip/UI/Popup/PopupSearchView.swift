@@ -6,9 +6,9 @@
 // below the field depending on popup position; up to 3 rows visible, scrollable beyond that.
 // Rows are chosen with the arrows + Return, the mouse, or ⌘1…⌘9 — the first nine rows carry a
 // shortcut (shown on the row) that runs them outright. The keys live on the focused field, so
-// they exist only while the palette is open. The palette is content-sized and not resizable: a
-// couple of results get a short palette, and a longer list grows to the default maximum and
-// scrolls beyond it.
+// they exist only while the palette is open. The palette height is set from the initial result
+// count and stays fixed while filtering, so typing never shifts the card; longer lists scroll
+// within the default maximum height.
 // A query that matches nothing is not a dead end: while AI is on, the empty state offers the
 // typed text as an AI instruction — "Ask AI" runs it once on the selection, "Save as AI tool"
 // keeps it as a custom AI preset (a searchable action from then on) and runs it. Recent
@@ -23,9 +23,13 @@ import Core
 public struct PopupSearchView: View {
     public let catalog: [any Action]
     public let context: ActionContext
+    public let alternateContext: SelectionContext?
+    private let onContextChanged: (@MainActor (SelectionContext) -> Void)?
     public let resultsAbove: Bool
     public let onResult: @MainActor (ActionResult) -> Void
     public let onExit: @MainActor () -> Void
+    /// Reports a drag from the search header so the popup owner can move the panel.
+    public let onDrag: @MainActor (ResultCardDragPhase) -> Void
     /// Routes AI preset selections (chrome source `.ai`) to the popup's AI card flow instead of
     /// `perform`. Passed the registered AI action id (`ai.preset.<presetID>`); nil disables the
     /// route and falls back to `perform`.
@@ -54,7 +58,7 @@ public struct PopupSearchView: View {
     /// carried explicitly — the palette's secondary signal is `replace` (⇧⏎ / the ⇧⏎ badge), which
     /// never reaches the mouse monitor's `pendingClickIntent`, so reading live state here would
     /// deliver a keyboard secondary run as primary.
-    public let onWillPerformAction: (@MainActor (any Action, ActionResultDelivery.ClickIntent) -> Void)?
+    public let onWillPerformAction: (@MainActor (any Action, ActionResultDelivery.ClickIntent) -> Bool)?
     /// Called when a `showsLoading` palette result is selected: the controller early-closes the
     /// popup and runs the action via the loading toast flow instead of the inline perform path.
     /// Carries the same explicit intent as `onWillPerformAction`.
@@ -62,11 +66,9 @@ public struct PopupSearchView: View {
     /// Returns the click intent captured at mouse-down for the current click, so the palette's
     /// perform path can thread a force-copy click (⇧-click) into the action context.
     public let onClickIntent: @MainActor () -> ActionResultDelivery.ClickIntent
-    /// Fork: switches to the other text source (selection ↔ clipboard), passed the typed query so
-    /// the re-shown palette keeps it. Nil where there is no controller (previews).
-    public let onSwitchSource: (@MainActor (String) -> Void)?
     @State private var query = ""
     @State private var selectedIndex = 0
+    @State private var activeSelectionContext: SelectionContext
     @FocusState private var isFocused: Bool
     /// Set by keyboard selection moves so `.onChange` auto-scrolls the list; hover-driven
     /// selection changes leave it false so hovering the edge of a row never shifts the list.
@@ -93,6 +95,16 @@ public struct PopupSearchView: View {
     private let presenter: any ActionPresenting
     @State private var hoverFrames: [SearchHoverTarget: CGRect] = [:]
     @State private var hoveredTarget: SearchHoverTarget?
+    @State private var hoveredFooterButton: FooterButton?
+    @State private var isDraggingSearch = false
+    @State private var isContextHovered = false
+    @State private var lastClickedRowIndex: Int?
+    @State private var lastClickTimestamp: TimeInterval = 0
+
+    private enum FooterButton: Hashable {
+        case paste
+        case run
+    }
 
     private var effectiveTheme: String {
         if !environmentEffectiveTheme.isEmpty {
@@ -115,12 +127,9 @@ public struct PopupSearchView: View {
     /// every one of those reads. Recomputed exactly once per query change (and per scope rebuild).
     @State private var results: [ActionSearchIndex] = []
 
-    /// Height of the search palette card: what the current results need (field inset, rows,
-    /// spacing, bottom padding), never shorter than `searchPaletteMinHeight` and never taller than
-    /// `defaultHeight` (`searchMaxRows` rows), beyond which the list scrolls.
-    private var cardHeight: CGFloat {
-        Self.bounded(naturalHeight, min: PopupMetrics.searchPaletteMinHeight, max: Self.defaultHeight)
-    }
+    /// Height is captured at palette entry so filtering never moves the card. The list scrolls
+    /// when the initial result set exceeds the default maximum height.
+    @State private var cardHeight: CGFloat = PopupMetrics.searchPaletteMinHeight
 
     /// Width of the search palette card. The default column is the floor — a list has a design
     /// width, and rows only widen it when a title needs the room — capped at the default column.
@@ -130,15 +139,10 @@ public struct PopupSearchView: View {
     }
 
     /// The search header height and bottom footer height.
-    static let searchHeaderHeight: CGFloat = 42.0
-    static let footerHeight: CGFloat = 32.0
+    static let searchHeaderHeight: CGFloat = 48.0
+    static let footerHeight: CGFloat = 34.0
     private static let rowSpacing: CGFloat = 2.0
     private static let listBottomPadding: CGFloat = 6.0
-
-    /// What the list needs to show every current row without scrolling.
-    private var naturalHeight: CGFloat {
-        Self.height(forRows: rowCount)
-    }
 
     /// The AI rows under the results for the current query: Ask + Save when nothing matched, none otherwise.
     private var promptRows: [PaletteAIPromptRow] {
@@ -206,6 +210,8 @@ public struct PopupSearchView: View {
     public init(
         catalog: [any Action],
         context: ActionContext,
+        alternateContext: SelectionContext? = nil,
+        onContextChanged: (@MainActor (SelectionContext) -> Void)? = nil,
         resultsAbove: Bool = false,
         presenter: any ActionPresenting = ActionCustomizationManager.shared,
         modeStore: PopupModeStore = PopupModeStore(),
@@ -213,19 +219,21 @@ public struct PopupSearchView: View {
         usageRecency: [String: Int] = [:],
         onResult: @escaping @MainActor (ActionResult) -> Void,
         onExit: @escaping @MainActor () -> Void,
+        onDrag: @escaping @MainActor (ResultCardDragPhase) -> Void = { _ in },
         onExitScope: @escaping @MainActor () -> Void = {},
         onRunAI: @escaping @MainActor (String) -> Void = { _ in },
         onRunAIPrompt: @escaping @MainActor (String, Bool, Bool) -> Void = { _, _, _ in },
         onSaveAIPrompt: @escaping @MainActor (String, Bool) -> Void = { _, _ in },
         aiEnabled: Bool = AIServiceManager.shared.isAIEnabled,
         onActionPerformed: (@MainActor (String) -> Void)? = nil,
-        onWillPerformAction: (@MainActor (any Action, ActionResultDelivery.ClickIntent) -> Void)? = nil,
+        onWillPerformAction: (@MainActor (any Action, ActionResultDelivery.ClickIntent) -> Bool)? = nil,
         onRunLoadingAction: (@MainActor (any Action, ActionResultDelivery.ClickIntent) -> Void)? = nil,
-        onClickIntent: @escaping @MainActor () -> ActionResultDelivery.ClickIntent = { .primary },
-        onSwitchSource: (@MainActor (String) -> Void)? = nil
+        onClickIntent: @escaping @MainActor () -> ActionResultDelivery.ClickIntent = { .primary }
     ) {
         self.catalog = catalog
         self.context = context
+        self.alternateContext = alternateContext
+        self.onContextChanged = onContextChanged
         self.resultsAbove = resultsAbove
         self.presenter = presenter
         self._modeStore = ObservedObject(wrappedValue: modeStore)
@@ -233,6 +241,7 @@ public struct PopupSearchView: View {
         self.usageRecency = usageRecency
         self.onResult = onResult
         self.onExit = onExit
+        self.onDrag = onDrag
         self.onExitScope = onExitScope
         self.onRunAI = onRunAI
         self.onRunAIPrompt = onRunAIPrompt
@@ -242,7 +251,7 @@ public struct PopupSearchView: View {
         self.onWillPerformAction = onWillPerformAction
         self.onRunLoadingAction = onRunLoadingAction
         self.onClickIntent = onClickIntent
-        self.onSwitchSource = onSwitchSource
+        _activeSelectionContext = State(initialValue: context.selection)
         // Index once at entry: the palette is recreated on every search entry (mode + scope
         // transition together), so the current catalog/scope are captured here. If a prewarmed
         // index matches the current catalog and recency, reuse it for instant appearance; otherwise build fresh.
@@ -258,14 +267,11 @@ public struct PopupSearchView: View {
         _searchIndex = State(initialValue: initialIndex)
         _results = State(initialValue: initialIndex)
         _naturalRowWidth = State(initialValue: Self.naturalRowWidth(for: initialIndex))
-        // Fork: a palette re-shown on the other text source starts with the query already typed.
-        let seedQuery = modeStore.paletteSeedQuery
-        if !seedQuery.isEmpty {
-            let seeded = ActionSearch.search(seedQuery, in: initialIndex)
-            _query = State(initialValue: seedQuery)
-            _results = State(initialValue: seeded)
-            _naturalRowWidth = State(initialValue: Self.naturalRowWidth(for: seeded))
-        }
+        _cardHeight = State(initialValue: Self.bounded(
+            Self.height(forRows: initialIndex.count),
+            min: PopupMetrics.searchPaletteMinHeight,
+            max: Self.defaultHeight
+        ))
     }
 
     public var body: some View {
@@ -316,17 +322,152 @@ public struct PopupSearchView: View {
 
 
     private var selectionHighlightFill: Color {
-        Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.08)
+        Color.primary.opacity(colorScheme == .dark ? 0.16 : 0.11)
     }
 
     private var selectionHighlightBorder: Color {
+        Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.06)
+    }
+
+    private var hoverHighlightFill: Color {
         Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.05)
+    }
+
+    private var hoverHighlightBorder: Color {
+        Color.primary.opacity(colorScheme == .dark ? 0.05 : 0.03)
+    }
+
+    private func handleRowClick(at index: Int) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let clickCount = NSApplication.shared.currentEvent?.clickCount ?? 1
+        let isDoubleClick = clickCount >= 2
+            || (lastClickedRowIndex == index && (now - lastClickTimestamp) < NSEvent.doubleClickInterval)
+
+        selectedIndex = index
+        lastClickedRowIndex = index
+        lastClickTimestamp = now
+
+        if isDoubleClick {
+            runSelected(replace: NSEvent.modifierFlags.contains(.shift))
+        }
+    }
+
+    private var activeActionContext: ActionContext {
+        ActionContext(
+            selection: activeSelectionContext,
+            modifiers: context.modifiers,
+            isSecondaryClick: context.isSecondaryClick,
+            match: context.match
+        )
+    }
+
+    private var canSwitchContext: Bool {
+        alternateContext != nil
+    }
+
+    private var selectionSourceAvailable: Bool {
+        !context.selection.isClipboardFallback
+            && !context.selection.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var clipboardSourceAvailable: Bool {
+        let clipboardContext = activeSelectionContext.isClipboardFallback ? activeSelectionContext : alternateContext
+        guard let clipboardContext else { return false }
+        return !clipboardContext.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var selectionTitle: String {
+        context.selection.source == .ocr
+            ? String(localized: "OCR")
+            : String(localized: "Selection")
+    }
+
+    private var activeContextTitle: String {
+        if activeSelectionContext.source == .ocr {
+            return String(localized: "OCR")
+        } else if activeSelectionContext.isClipboardFallback {
+            return String(localized: "Clipboard")
+        } else {
+            return String(localized: "Selection")
+        }
+    }
+
+    @ViewBuilder
+    private var activeSourceIcon: some View {
+        if activeSelectionContext.source == .ocr {
+            Image(systemName: "text.viewfinder")
+                .font(.system(size: 12, weight: .medium))
+        } else if activeSelectionContext.isClipboardFallback {
+            Image(systemName: "doc.on.clipboard")
+                .font(.system(size: 11, weight: .medium))
+        } else {
+            Image("MenuBarIcon")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 14, height: 14)
+        }
+    }
+
+    private func toggleContextSource() {
+        guard let alternateContext else { return }
+        let nextContext = activeSelectionContext.isClipboardFallback ? context.selection : alternateContext
+        setContextSource(nextContext)
+    }
+
+    private func setContextSource(_ nextContext: SelectionContext?) {
+        guard let nextContext else { return }
+        activeSelectionContext = nextContext
+        onContextChanged?(nextContext)
+        isFocused = true
+    }
+
+    private struct ContextIndicatorButtonStyle: ButtonStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .opacity(configuration.isPressed ? 0.65 : 1.0)
+                .animation(.easeInOut(duration: 0.08), value: configuration.isPressed)
+        }
+    }
+
+    private var customSourceSwitcher: some View {
+        Button {
+            toggleContextSource()
+        } label: {
+            activeSourceIcon
+                .foregroundColor(
+                    canSwitchContext
+                        ? (isContextHovered
+                            ? PopupThemeModel.restForeground(for: effectiveTheme)
+                            : PopupThemeModel.restSecondary(for: effectiveTheme).opacity(0.85))
+                        : PopupThemeModel.restSecondary(for: effectiveTheme).opacity(0.5)
+                )
+                .frame(width: 24, height: 24)
+                .background {
+                    if canSwitchContext && isContextHovered {
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .fill(Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.06))
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(ContextIndicatorButtonStyle())
+        .disabled(!canSwitchContext)
+        .animation(.easeInOut(duration: 0.12), value: isContextHovered)
+        .onHover { hovering in
+            isContextHovered = hovering && canSwitchContext
+        }
+        .help(canSwitchContext ? String(localized: "Tab to switch text source") : activeContextTitle)
+        .accessibilityLabel(activeContextTitle)
+        .accessibilityHint(canSwitchContext ? String(localized: "Press Tab to switch between selection and clipboard") : "")
     }
 
     private var searchFieldRow: some View {
         HStack(spacing: 12) {
             searchIcon
-                .frame(width: 20, alignment: .center)
+                .frame(width: 20, height: Self.searchHeaderHeight - 4, alignment: .center)
+                .contentShape(Rectangle())
+                .gesture(searchHeaderDragGesture)
 
             TextField(
                 scope == nil
@@ -338,6 +479,11 @@ public struct PopupSearchView: View {
             .font(.system(size: 14, weight: .regular))
             .foregroundColor(PopupThemeModel.restForeground(for: effectiveTheme))
             .focused($isFocused)
+            .onKeyPress(.tab) {
+                guard alternateContext != nil else { return .ignored }
+                toggleContextSource()
+                return .handled
+            }
             .onSubmit { runSelected(replace: NSEvent.modifierFlags.contains(.shift)) }
             .onKeyPress { press in
                 if press.key == .escape {
@@ -356,57 +502,50 @@ public struct PopupSearchView: View {
                     moveSelection(by: 1)
                     return .handled
                 }
-                if press.key == .tab, modeStore.paletteHasAlternateSource, let onSwitchSource {
-                    onSwitchSource(query)
-                    return .handled
-                }
                 return .ignored
             }
 
             Spacer(minLength: 4)
 
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 13))
-                        .foregroundColor(PopupThemeModel.restSecondary(for: effectiveTheme).opacity(0.8))
-                }
-                .buttonStyle(.plain)
-            } else {
-                let isEscHovered = hoveredTarget == .esc
-                Button(action: exitSearch) {
-                    Text("esc")
-                        .font(.system(size: 10.5, weight: .medium, design: .rounded))
-                        .foregroundColor(isEscHovered ? PopupThemeModel.restForeground(for: effectiveTheme) : PopupThemeModel.restSecondary(for: effectiveTheme))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2.5)
-                        .background(
-                            isEscHovered ? Color.primary.opacity(0.12) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .stroke(isEscHovered ? Color.primary.opacity(0.25) : Color.secondary.opacity(colorScheme == .dark ? 0.35 : 0.22), lineWidth: 0.5)
-                        )
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Exit search")
-                .searchHoverTarget(.esc)
-                .onHover { hovering in
-                    useLocalHoverFallback(for: .esc, isHovering: hovering)
-                }
-            }
+            customSourceSwitcher
         }
         .padding(.horizontal, 18)
         .offset(y: 2)
         .frame(height: Self.searchHeaderHeight)
+        .overlay {
+            VStack(spacing: 0) {
+                searchHeaderDragStrip
+                Spacer(minLength: 0)
+                searchHeaderDragStrip
+            }
+        }
         .searchHoverTarget(.searchBar)
         .onHover { hovering in
             useLocalHoverFallback(for: .searchBar, isHovering: hovering)
         }
+    }
+
+    private var searchHeaderDragStrip: some View {
+        Color.clear
+            .frame(height: 8)
+            .contentShape(Rectangle())
+            .gesture(searchHeaderDragGesture)
+    }
+
+    private var searchHeaderDragGesture: some Gesture {
+        DragGesture(minimumDistance: 2)
+            .onChanged { _ in
+                if !isDraggingSearch {
+                    isDraggingSearch = true
+                    onDrag(.began)
+                }
+                onDrag(.changed)
+            }
+            .onEnded { _ in
+                guard isDraggingSearch else { return }
+                isDraggingSearch = false
+                onDrag(.ended)
+            }
     }
 
     /// Closes the palette by dropping the scope back to the full list (Esc with an empty scoped
@@ -488,11 +627,11 @@ public struct PopupSearchView: View {
     @ViewBuilder
     private func resultRow(item: ActionSearchIndex, index: Int) -> some View {
         let isSelected = index == selectedIndex
+        let isHovered = hoveredTarget == .row(index)
         let rowShape = RoundedRectangle(cornerRadius: PopupMetrics.searchRowCornerRadius, style: .continuous)
 
         Button {
-            selectedIndex = index
-            runSelected(replace: NSEvent.modifierFlags.contains(.shift))
+            handleRowClick(at: index)
         } label: {
             HStack(spacing: 12) {
                 iconView(for: rowIcon(for: item.action))
@@ -512,7 +651,7 @@ public struct PopupSearchView: View {
                     Text(badge)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(
-                            isSelected
+                            (isSelected || isHovered)
                                 ? PopupThemeModel.restForeground(for: effectiveTheme)
                                 : PopupThemeModel.restSecondary(for: effectiveTheme)
                         )
@@ -525,7 +664,7 @@ public struct PopupSearchView: View {
                         .truncationMode(.tail)
                         .frame(maxWidth: PopupMetrics.inlineSearchAccessoryMaxWidth, alignment: .trailing)
                         .foregroundColor(
-                            isSelected
+                            (isSelected || isHovered)
                                 ? PopupThemeModel.restForeground(for: effectiveTheme)
                                 : PopupThemeModel.restSecondary(for: effectiveTheme)
                         )
@@ -546,7 +685,7 @@ public struct PopupSearchView: View {
                         .font(.system(size: 11, weight: .medium, design: .rounded))
                         .monospacedDigit()
                         .foregroundColor(
-                            isSelected
+                            (isSelected || isHovered)
                                 ? PopupThemeModel.restForeground(for: effectiveTheme)
                                 : PopupThemeModel.restSecondary(for: effectiveTheme)
                         )
@@ -567,9 +706,17 @@ public struct PopupSearchView: View {
                 Group {
                     if isSelected {
                         rowShape
-                            .fill(selectionHighlightFill)
+                            .fill(isSelected && isHovered
+                                ? Color.primary.opacity(colorScheme == .dark ? 0.19 : 0.13)
+                                : selectionHighlightFill)
                             .overlay(
                                 rowShape.stroke(selectionHighlightBorder, lineWidth: 0.5)
+                            )
+                    } else if isHovered {
+                        rowShape
+                            .fill(hoverHighlightFill)
+                            .overlay(
+                                rowShape.stroke(hoverHighlightBorder, lineWidth: 0.5)
                             )
                     } else {
                         Color.clear
@@ -590,13 +737,13 @@ public struct PopupSearchView: View {
     @ViewBuilder
     private func promptRow(_ row: PaletteAIPromptRow, index: Int) -> some View {
         let isSelected = index == selectedIndex
+        let isHovered = hoveredTarget == .row(index)
         let rowShape = RoundedRectangle(cornerRadius: PopupMetrics.searchRowCornerRadius, style: .continuous)
         let foreground = PopupThemeModel.restForeground(for: effectiveTheme)
         let title = PaletteAIPrompt.rowTitle(row, query: query)
 
         Button {
-            selectedIndex = index
-            runSelected(replace: NSEvent.modifierFlags.contains(.shift))
+            handleRowClick(at: index)
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: PaletteAIPrompt.rowSymbol(row))
@@ -617,7 +764,7 @@ public struct PopupSearchView: View {
                         .font(.system(size: 11, weight: .medium, design: .rounded))
                         .monospacedDigit()
                         .foregroundColor(
-                            isSelected
+                            (isSelected || isHovered)
                                 ? PopupThemeModel.restForeground(for: effectiveTheme)
                                 : PopupThemeModel.restSecondary(for: effectiveTheme)
                         )
@@ -636,8 +783,14 @@ public struct PopupSearchView: View {
                 Group {
                     if isSelected {
                         rowShape
-                            .fill(selectionHighlightFill)
+                            .fill(isSelected && isHovered
+                                ? Color.primary.opacity(colorScheme == .dark ? 0.19 : 0.13)
+                                : selectionHighlightFill)
                             .overlay(rowShape.stroke(selectionHighlightBorder, lineWidth: 0.5))
+                    } else if isHovered {
+                        rowShape
+                            .fill(hoverHighlightFill)
+                            .overlay(rowShape.stroke(hoverHighlightBorder, lineWidth: 0.5))
                     } else {
                         Color.clear
                     }
@@ -664,25 +817,22 @@ public struct PopupSearchView: View {
     /// The plain, borderless bottom bar matching the top search field.
     private var bottomBarRow: some View {
         HStack(spacing: 8) {
-            Group {
-                if ForkBehavior.paletteSourceFooter {
-                    PaletteSourceFooter(
-                        selection: context.selection,
-                        hasAlternate: modeStore.paletteHasAlternateSource,
-                        effectiveTheme: effectiveTheme,
-                        onSwitch: { onSwitchSource?(query) }
-                    )
-                } else {
-                    statusLabel
-                }
-            }
+            if ForkBehavior.paletteSourceFooter {
+                PaletteSourceFooter(
+                    selection: activeSelectionContext,
+                    hasAlternate: canSwitchContext,
+                    effectiveTheme: effectiveTheme,
+                    onSwitch: { toggleContextSource() }
+                )
                 .padding(.leading, 14)
+            }
 
             Spacer(minLength: 8)
 
             footerActionButtons
                 .fixedSize()
-                .padding(.trailing, 14)
+                .padding(.trailing, 8)
+                .offset(y: -2)
         }
         .frame(height: Self.footerHeight)
         .searchHoverTarget(.bottomDock)
@@ -692,54 +842,27 @@ public struct PopupSearchView: View {
     }
 
     @ViewBuilder
-    private var statusLabel: some View {
-        if rowCount > 0 {
-            Text(rowCount == 1 ? String(localized: "1 action") : String(localized: "\(rowCount) actions"))
-                .font(.system(size: 11, weight: .regular))
-                .foregroundColor(PopupThemeModel.restSecondary(for: effectiveTheme).opacity(0.85))
-        } else {
-            Text(String(localized: "No matches"))
-                .font(.system(size: 11, weight: .regular))
-                .foregroundColor(PopupThemeModel.restSecondary(for: effectiveTheme).opacity(0.7))
-        }
-    }
-
-    @ViewBuilder
     private var footerActionButtons: some View {
         if rowCount > 0 {
-            HStack(spacing: 6) {
-                if isSelectedAI {
-                    hintBadge(
-                        title: PaletteAIPrompt.secondaryActionTitle(canPaste: modeStore.canPaste),
-                        shortcut: "⇧⏎",
-                        isAccent: false
-                    ) {
-                        runSelected(replace: true)
-                    }
+            HStack(spacing: 4) {
+                footerButton(
+                    title: isSelectedAI
+                        ? PaletteAIPrompt.secondaryActionTitle(canPaste: modeStore.canPaste)
+                        : "",
+                    shortcut: "⇧⏎",
+                    id: .paste,
+                    isAccent: false
+                ) {
+                    runSelected(replace: true)
+                }
 
-                    hintBadge(
-                        title: PaletteAIPrompt.primaryActionTitle(),
-                        shortcut: "⏎",
-                        isAccent: true
-                    ) {
-                        runSelected(replace: false)
-                    }
-                } else {
-                    hintBadge(
-                        title: "",
-                        shortcut: "⇧⏎",
-                        isAccent: false
-                    ) {
-                        runSelected(replace: true)
-                    }
-
-                    hintBadge(
-                        title: String(localized: "Run"),
-                        shortcut: "⏎",
-                        isAccent: true
-                    ) {
-                        runSelected(replace: false)
-                    }
+                footerButton(
+                    title: isSelectedAI ? PaletteAIPrompt.primaryActionTitle() : String(localized: "Run"),
+                    shortcut: "⏎",
+                    id: .run,
+                    isAccent: true
+                ) {
+                    runSelected(replace: false)
                 }
             }
             .animation(.easeInOut(duration: 0.15), value: isSelectedAI)
@@ -747,48 +870,38 @@ public struct PopupSearchView: View {
     }
 
     @ViewBuilder
-    private func hintBadge(title: String, shortcut: String, isAccent: Bool, action: @escaping () -> Void) -> some View {
+    private func footerButton(
+        title: String,
+        shortcut: String,
+        id: FooterButton,
+        isAccent: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
                 if !title.isEmpty {
                     Text(title)
                         .font(.system(size: 11.5, weight: isAccent ? .semibold : .medium))
-                        .foregroundColor(
-                            isAccent
-                                ? Color.white
-                                : PopupThemeModel.restForeground(for: effectiveTheme).opacity(0.85)
-                        )
+                        .foregroundColor(isAccent ? .white : PopupThemeModel.restForeground(for: effectiveTheme).opacity(0.85))
                 }
                 Text(shortcut)
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundColor(
-                        isAccent
-                            ? Color.white.opacity(0.95)
-                            : PopupThemeModel.restSecondary(for: effectiveTheme)
-                    )
+                    .foregroundColor(isAccent ? .white.opacity(0.95) : PopupThemeModel.restSecondary(for: effectiveTheme))
             }
-            .padding(.horizontal, title.isEmpty ? 8 : 10)
+            .padding(.horizontal, title.isEmpty ? 8 : 12)
             .padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(
-                        isAccent
-                            ? Color.accentColor
-                            : Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.07)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .stroke(
-                                isAccent
-                                    ? Color.white.opacity(0.20)
-                                    : (colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.08)),
-                                lineWidth: 0.5
-                            )
-                    )
+            .popupFooterButtonChrome(
+                effectiveTheme: effectiveTheme,
+                colorScheme: colorScheme,
+                isHovered: hoveredFooterButton == id,
+                tint: isAccent ? .accentColor : nil
             )
-            .contentShape(Rectangle())
+            .contentShape(RoundedRectangle(cornerRadius: PopupMetrics.footerButtonCornerRadius, style: .continuous))
         }
         .buttonStyle(.plain)
+        .onHover { isHovering in
+            hoveredFooterButton = isHovering ? id : nil
+        }
     }
 
     private func moveSelection(by delta: Int) {
@@ -851,6 +964,8 @@ public struct PopupSearchView: View {
         }
         guard results.indices.contains(selectedIndex) else { return }
         let action = results[selectedIndex].action
+        let activeContext = activeActionContext
+        guard action.isEnabled(for: activeContext) else { return }
         // The intent is resolved once, up front, so the perform context and the delivery snapshot
         // agree: `replace` (⇧⏎ / the ⇧⏎ badge) is the palette's own secondary signal and never
         // reaches the mouse monitor, while `onClickIntent()` carries a ⇧/right mouse-down.
@@ -868,7 +983,7 @@ public struct PopupSearchView: View {
             }
             // No loading callback wired up (e.g. a preview): fall through to the inline perform path.
         }
-        onWillPerformAction?(action, clickIntent)
+        guard onWillPerformAction?(action, clickIntent) ?? true else { return }
         onActionPerformed?(action.id)
         if action.chrome.isInlineResult {
             if let result = modeStore.inlineResults[action.id] {
@@ -881,10 +996,10 @@ public struct PopupSearchView: View {
                             onResult(.text(text))
                             return
                         }
-                        let match = action.matchInfo(for: context)
+                        let match = action.matchInfo(for: activeContext)
                         let performContext = ActionContext(
-                            selection: context.selection,
-                            modifiers: context.modifiers,
+                            selection: activeContext.selection,
+                            modifiers: activeContext.modifiers,
                             isSecondaryClick: clickIntent == .secondary,
                             match: match
                         )
@@ -901,10 +1016,10 @@ public struct PopupSearchView: View {
             do {
                 // Same match plumbing as the bar's perform path: thread the visibility match into
                 // the perform context so placeholders/env see the same match that enabled the row.
-                let match = action.matchInfo(for: context)
+                let match = action.matchInfo(for: activeContext)
                 let performContext = ActionContext(
-                    selection: context.selection,
-                    modifiers: context.modifiers,
+                    selection: activeContext.selection,
+                    modifiers: activeContext.modifiers,
                     isSecondaryClick: clickIntent == .secondary,
                     match: match
                 )
@@ -993,23 +1108,10 @@ public struct PopupSearchView: View {
         return parts.joined(separator: " ")
     }
 
-    /// Rows are strictly [icon | text]: a text icon in the icon column would duplicate the title, so
-    /// resolve symbol-first (custom override, then the action's SF Symbol preference), matching the
-    /// preferences table.
+    /// Rows are strictly [icon | text], so use the table presentation icon. This preserves the
+    /// underlying glyph when the popup bar has been configured to show the action title as text.
     private func rowIcon(for action: any Action) -> ActionIcon {
-        if ActionIdentity.isAIPreset(action) {
-            return .symbol(Constants.defaultAIIconSymbol)
-        }
-        let resolved = action.displayIcon(using: presenter)
-        switch resolved {
-        case .symbol, .url, .local:
-            return resolved
-        case .text:
-            if let configurable = action as? any ConfigurableAction {
-                return .symbol(configurable.preferenceIconName)
-            }
-            return resolved
-        }
+        presenter.tableIcon(for: action)
     }
 
     private func iconView(for icon: ActionIcon) -> some View {
@@ -1031,7 +1133,7 @@ public struct PopupSearchView: View {
     // MARK: - Hover (same location-based mechanism as the bar)
 
     /// The hovered target is derived from the shared mouse location, hit-tested against the
-    /// frames each row/esc registers in the popup's named coordinate space. Hovering a row
+    /// frames each row registers in the popup's named coordinate space. Hovering a row
     /// moves the keyboard selection to it so the highlight follows the mouse.
     /// Crucially: hovering over the search bar or bottom bar NEVER shifts selection or focuses a list row!
     private func updateHoveredTarget(for location: CGPoint?) {
@@ -1042,12 +1144,7 @@ public struct PopupSearchView: View {
 
         // Hit-test the registered frames rather than comparing against card-relative constants:
         // the location is in full panel-content coordinates, which include the 28 pt shadow inset
-        // that `PopupMetrics.popupShadowInset` adds before the named hover space. Esc is checked
-        // first because its frame sits inside the search bar's.
-        if let escFrame = hoverFrames[.esc], escFrame.contains(point) {
-            hoveredTarget = .esc
-            return
-        }
+        // that `PopupMetrics.popupShadowInset` adds before the named hover space.
         if let header = hoverFrames[.searchBar], header.contains(point) {
             hoveredTarget = .searchBar
             // NEVER select a list row when mouse is over the search bar
@@ -1071,9 +1168,6 @@ public struct PopupSearchView: View {
 
         guard target != hoveredTarget else { return }
         hoveredTarget = target
-        if case .row(let index) = target, index < rowCount {
-            selectedIndex = index
-        }
     }
 
     /// Local `.onHover` fallback used only when the AX global mouse monitor is unavailable;
@@ -1083,9 +1177,6 @@ public struct PopupSearchView: View {
         if isHovering {
             guard hoveredTarget != target else { return }
             hoveredTarget = target
-            if case .row(let index) = target, index < rowCount {
-                selectedIndex = index
-            }
         } else if hoveredTarget == target {
             hoveredTarget = nil
         }
@@ -1140,4 +1231,3 @@ struct CommandDigitCatcher: NSViewRepresentable {
         }
     }
 }
-

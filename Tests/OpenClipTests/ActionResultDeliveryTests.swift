@@ -18,7 +18,7 @@ final class ActionResultDeliveryTests: XCTestCase {
         case (.text(let a), .text(let b)): XCTAssertEqual(a, b, message, file: file, line: line)
         case (.cut(let a), .cut(let b)): XCTAssertEqual(a, b, message, file: file, line: line)
         case (.openURL(let a), .openURL(let b)): XCTAssertEqual(a, b, message, file: file, line: line)
-        case (.success, .success), (.none, .none): XCTAssertTrue(true, message, file: file, line: line)
+        case (.success, .success), (.none, .none), (.simulatePaste, .simulatePaste): XCTAssertTrue(true, message, file: file, line: line)
         case (.sequence(let a), .sequence(let b)):
             XCTAssertEqual(a.count, b.count, message.isEmpty ? "sequence length" : message, file: file, line: line)
             for (item, expectedItem) in zip(a, b) {
@@ -340,6 +340,16 @@ final class ActionResultDeliveryTests: XCTestCase {
         return handler.results.first!
     }
 
+    @MainActor
+    private func awaitDelivery(at index: Int, from handler: RecordingHandler) async throws -> ActionResult {
+        let deadline = Date().addingTimeInterval(3.0)
+        while handler.results.count <= index && Date() < deadline {
+            try await Task.sleep(nanoseconds: 2_000_000)
+        }
+        XCTAssertGreaterThan(handler.results.count, index, "effect delivery did not reach the handler at index \(index)")
+        return handler.results[index]
+    }
+
     /// Polls `toast.isLoading` until it flips false (the loading toast fades once the action's
     /// result lands) or the deadline passes — a state-based wait instead of a fixed sleep, so the
     /// assertion isn't flaky on slow machines.
@@ -366,14 +376,16 @@ final class ActionResultDeliveryTests: XCTestCase {
                                  pasteProbe: PasteAvailabilityProbing,
                                  appPolicy: AppPolicyContext,
                                  toastController: ToastPanelController = ToastPanelController(),
-                                 settingsStore: SettingsStore = MemorySettingsStore()) -> PopupWindowController {
+                                 settingsStore: SettingsStore = MemorySettingsStore(),
+                                 source: SelectionSource = .selection) -> PopupWindowController {
         let controller = PopupWindowController(resultHandler: resultHandler, pasteProbe: pasteProbe, toastController: toastController, settingsStore: settingsStore)
         let context = SelectionContext(
             text: "hello",
             sourceApp: AppIdentity(bundleIdentifier: "com.test", localizedName: "Test"),
             cursorPosition: CGPoint(x: 300, y: 300),
             timestamp: Date(),
-            appPolicy: appPolicy
+            appPolicy: appPolicy,
+            source: source
         )
         controller.startTestSession(for: context)
         return controller
@@ -482,6 +494,49 @@ final class ActionResultDeliveryTests: XCTestCase {
 
         assertCase(try await awaitDelivery(from: handler), .copy("hello"))
         XCTAssertFalse(controller.isVisible)
+    }
+
+    @MainActor
+    func testOCRDirectSecondaryCutIsCopied() async throws {
+        let handler = RecordingHandler()
+        let controller = shownController(resultHandler: handler, pasteProbe: FixedProbe(result: true), appPolicy: .default, source: .ocr)
+        defer { controller.hide() }
+
+        controller.runAction(TextStubAction(result: .cut("recognized")), with: controllerCurrentContext(controller, source: .ocr), isSecondaryClick: true)
+
+        assertCase(try await awaitDelivery(from: handler), .copy("recognized"))
+    }
+
+    @MainActor
+    func testOCRDirectSimulatePasteIsDropped() async throws {
+        let handler = RecordingHandler()
+        let controller = shownController(resultHandler: handler, pasteProbe: FixedProbe(result: true), appPolicy: .default, source: .ocr)
+        defer { controller.hide() }
+
+        controller.runAction(TextStubAction(result: .simulatePaste), with: controllerCurrentContext(controller, source: .ocr), isSecondaryClick: true)
+
+        assertCase(try await awaitDelivery(from: handler), .none)
+    }
+
+    @MainActor
+    func testOCRDeclaredSecondarySequenceAndLoadingResultAreNormalized() async throws {
+        let handler = RecordingHandler()
+        let controller = shownController(resultHandler: handler, pasteProbe: FixedProbe(result: true), appPolicy: .default, source: .ocr)
+        defer { controller.hide() }
+
+        let action = TextStubAction(
+            result: .success,
+            delivery: ActionDelivery(secondary: .sequence([.cut("one"), .simulatePaste, .copy("two")]))
+        )
+        controller.runAction(action, with: controllerCurrentContext(controller, source: .ocr), isSecondaryClick: true)
+        assertCase(try await awaitDelivery(at: 0, from: handler), .copy("one"))
+        assertCase(try await awaitDelivery(at: 1, from: handler), .none)
+        assertCase(try await awaitDelivery(at: 2, from: handler), .copy("two"))
+
+        let loadingController = shownController(resultHandler: handler, pasteProbe: FixedProbe(result: true), appPolicy: .default, source: .ocr)
+        defer { loadingController.hide() }
+        loadingController.runLoadingAction(SlowResultStubAction(result: .cut("loaded")), with: controllerCurrentContext(loadingController, source: .ocr), isSecondaryClick: false)
+        assertCase(try await awaitDelivery(at: 3, from: handler), .copy("loaded"))
     }
 
     // MARK: - Builtin explicit paste/copy never governed by the picker (controller level)
@@ -837,8 +892,8 @@ final class ActionResultDeliveryTests: XCTestCase {
     }
 
     /// Every `.toast` result routes to the toast (the single status surface). A test session has
-    /// no panel window (`startTestSession` creates none), so the toast falls back to deterministic
-    /// main-screen centering — the contract forbids any pointer fallback.
+    /// no panel window (`startTestSession` creates none), so the toast uses cursor-relative
+    /// placement without inventing a popup anchor.
     @MainActor
     func testToastRoutesToToast() async throws {
         let toast = ToastPanelController()
@@ -915,13 +970,14 @@ final class ActionResultDeliveryTests: XCTestCase {
     }
 
     @MainActor
-    private func controllerCurrentContext(_ controller: PopupWindowController) -> ActionContext {
+    private func controllerCurrentContext(_ controller: PopupWindowController, source: SelectionSource = .selection) -> ActionContext {
         let context = SelectionContext(
             text: "hello",
             sourceApp: AppIdentity(bundleIdentifier: "com.test", localizedName: "Test"),
             cursorPosition: CGPoint(x: 300, y: 300),
             timestamp: Date(),
-            appPolicy: .default
+            appPolicy: .default,
+            source: source
         )
         return ActionContext(selection: context, modifiers: [])
     }
@@ -1540,6 +1596,112 @@ final class ActionResultDeliveryTests: XCTestCase {
     }
 
     @MainActor
+    func testFieldChangeBeforeAsyncActionFinishesCopiesInsteadOfPasting() async throws {
+        let handler = RecordingHandler()
+        let controller = shownController(resultHandler: handler, pasteProbe: FixedProbe(result: true), appPolicy: .default)
+        let target = DeliveryTestApp(pid: 90001)
+        controller.previousFrontmostApp = target
+        controller.frontmostApplicationProvider = { target }
+        var fieldIsCurrent = true
+        controller.selectionIsCurrent = { _ in fieldIsCurrent }
+        controller.runAction(SlowPasteStubAction(text: "late result"),
+                             with: controllerCurrentContext(controller), isSecondaryClick: false)
+        fieldIsCurrent = false
+        assertCase(try await awaitDelivery(from: handler), .copy("late result"))
+        XCTAssertEqual(controller.lastDeliveryStatus, .targetChanged)
+    }
+
+    @MainActor
+    func testStaleEditableSelectionIsRejectedBeforeActionRuns() {
+        let handler = RecordingHandler()
+        let controller = PopupWindowController(
+            resultHandler: handler,
+            pasteProbe: FixedProbe(result: true),
+            settingsStore: MemorySettingsStore()
+        )
+        let selection = SelectionContext(
+            text: "word",
+            sourceApp: AppIdentity(bundleIdentifier: "com.test", localizedName: "Test"),
+            cursorPosition: .zero,
+            timestamp: Date(),
+            appPolicy: .default,
+            selectionGeneration: 7,
+            isEditable: true
+        )
+        controller.startTestSession(for: selection)
+        controller.selectionIsCurrent = { _ in false }
+        let action = KeyPressAction(
+            id: "com.test.bold",
+            title: "Bold",
+            spec: KeyPressSpec(manifestString: "command+b")!,
+            chrome: ActionChrome(requiresLiveSelection: true),
+            rules: ExtensionActionRules(requirements: ActionRequirements(input: .editableSelection))
+        )
+
+        controller.runAction(action, with: controller.currentActionContext!, isSecondaryClick: false)
+        XCTAssertTrue(handler.results.isEmpty)
+        controller.hide()
+    }
+
+    @MainActor
+    func testRequiredPasteTargetResultIsDroppedAfterTargetApplicationSwitches() async throws {
+        let handler = RecordingHandler()
+        let probe = SwitchingTargetProbe()
+        let controller = PopupWindowController(
+            resultHandler: handler,
+            pasteProbe: probe,
+            settingsStore: MemorySettingsStore()
+        )
+        let target = DeliveryTestApp(pid: 90001)
+        let other = DeliveryTestApp(pid: 90002)
+        controller.previousFrontmostApp = target
+        controller.frontmostApplicationProvider = { probe.switched ? other : target }
+        controller.startTestSession(for: SelectionContext(
+            text: "hello",
+            sourceApp: AppIdentity(bundleIdentifier: "com.test", localizedName: "Test"),
+            appPolicy: .default
+        ), pasteAvailable: true)
+        let action = SlowResultStubAction(
+            result: .paste("stale destination"),
+            rules: ExtensionActionRules(requirements: ActionRequirements(input: .optional, requiresPasteTarget: true))
+        )
+
+        controller.runAction(action, with: controller.currentActionContext!, isSecondaryClick: false)
+
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(probe.switched, "the result should wait for its paste probe")
+        XCTAssertTrue(handler.results.isEmpty, "a destination-bound action result must not dispatch after its target app changes during the probe")
+        controller.hide()
+    }
+
+    @MainActor
+    func testFieldChangeWhilePasteProbeSuspendsCopiesInsteadOfPasting() async throws {
+        let handler = RecordingHandler()
+        let probe = SwitchingTargetProbe()
+        let controller = shownController(resultHandler: handler, pasteProbe: probe, appPolicy: .default)
+        let target = DeliveryTestApp(pid: 90001)
+        controller.previousFrontmostApp = target
+        controller.frontmostApplicationProvider = { target }
+        controller.selectionIsCurrent = { _ in !probe.switched }
+        controller.deliverResult(.paste("late result"))
+        assertCase(try await awaitDelivery(from: handler), .copy("late result"))
+        XCTAssertEqual(controller.lastDeliveryStatus, .targetChanged)
+    }
+
+    @MainActor
+    func testAppSwitchWhilePasteProbeSuspendsDowngradesToCopy() async throws {
+        let handler = RecordingHandler()
+        let probe = SwitchingTargetProbe()
+        let controller = shownController(resultHandler: handler, pasteProbe: probe, appPolicy: .default)
+        let target = DeliveryTestApp(pid: 90001)
+        let other = DeliveryTestApp(pid: 90002)
+        controller.previousFrontmostApp = target
+        controller.frontmostApplicationProvider = { probe.switched ? other : target }
+        controller.deliverResult(.paste("safe text"))
+        assertCase(try await awaitDelivery(from: handler), .copy("safe text"))
+    }
+
+    @MainActor
     func testDeliverResultAfterHidePreservesPrecapturedInFlightDeliveryContext() async throws {
         let handler = RecordingHandler()
         let controller = shownController(resultHandler: handler,
@@ -1742,11 +1904,37 @@ private final class TextStubAction: Action, @unchecked Sendable {
     let title = "Text Action"
     let icon: ActionIcon = .symbol("text.alignleft")
     var chrome: ActionChrome { ActionChrome(source: .builtin) }
+    private let deliveryValue: ActionDelivery?
     private let result: ActionResult
-    init(result: ActionResult = .text("hello")) { self.result = result }
+    init(result: ActionResult = .text("hello"), delivery: ActionDelivery = .none) {
+        self.result = result
+        self.deliveryValue = delivery.secondary == nil && delivery.primaryToast == nil && delivery.secondaryToast == nil
+            ? nil
+            : delivery
+    }
+    var delivery: ActionDelivery? { deliveryValue }
     func isEnabled(for context: ActionContext) -> Bool { true }
     func matchInfo(for context: ActionContext) -> ActionMatchInfo? { nil }
     func perform(_ context: ActionContext) async throws -> ActionResult { result }
+}
+
+private final class SlowResultStubAction: ActionWithRules, @unchecked Sendable {
+    let id = "stub.slowresult"
+    let title = "Slow Result"
+    let icon: ActionIcon = .symbol("text.alignleft")
+    var chrome: ActionChrome { ActionChrome(source: .builtin, showsLoading: true) }
+    private let result: ActionResult
+    let rules: ExtensionActionRules?
+    init(result: ActionResult, rules: ExtensionActionRules? = nil) {
+        self.result = result
+        self.rules = rules
+    }
+    func isEnabled(for context: ActionContext) -> Bool { true }
+    func matchInfo(for context: ActionContext) -> ActionMatchInfo? { nil }
+    func perform(_ context: ActionContext) async throws -> ActionResult {
+        try await Task.sleep(nanoseconds: 30_000_000)
+        return result
+    }
 }
 
 /// A `showsLoading` action returning `.text` after a short delay (loading + preview re-show path).
@@ -1782,4 +1970,21 @@ private final class LockedContextBox: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         return storage
     }
+}
+
+@MainActor
+private final class SwitchingTargetProbe: PasteAvailabilityProbing {
+    var switched = false
+    func canPaste(in app: NSRunningApplication?, policy: AppPolicyContext) async -> Bool? {
+        await Task.yield()
+        switched = true
+        return true
+    }
+}
+
+private final class DeliveryTestApp: NSRunningApplication {
+    private let pid: pid_t
+    init(pid: pid_t) { self.pid = pid; super.init() }
+    override var processIdentifier: pid_t { pid }
+    override var bundleIdentifier: String? { "com.test.delivery" }
 }

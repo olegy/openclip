@@ -15,10 +15,12 @@ public enum SettingsCatalog {
         [
             // Action ordering / enablement
             SettingKey.actionOrder.erased,
+            SettingKey.standaloneAIActionIDs.erased,
             SettingKey.disabledActionIDs.erased,
             SettingKey.disabledPackages.erased,
             SettingKey.disabledContextualActionIDs.erased,
             SettingKey.contextualActionsEnabled.erased,
+            SettingKey.contextualPillPosition.erased,
             SettingKey.actionUsageRecency.erased,
             SettingKey.extensionGroupMemberOrder.erased,
             SettingKey.actionAliases.erased,
@@ -37,6 +39,7 @@ public enum SettingsCatalog {
             SettingKey.hasDismissedPostOnboardingCoachMark.erased,
             SettingKey.startAtLogin.erased,
             SettingKey.completionCopyToClipboard.erased,
+            SettingKey.captureTextAutoCopy.erased,
 
             // Updates
             SettingKey.automaticallyChecksForUpdates.erased,
@@ -45,7 +48,9 @@ public enum SettingsCatalog {
             SettingKey.updateChannel.erased,
 
             // Popup presentation
+            SettingKey.showSearchAllActions.erased,
             SettingKey.popupPageSize.erased,
+            SettingKey.popupFitToWidth.erased,
             SettingKey.popupBarWidth.erased,
             SettingKey.popupScale.erased,
             SettingKey.popupTheme.erased,

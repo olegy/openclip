@@ -7,7 +7,12 @@ import Core
 
 extension AppIdentity {
     public init(_ app: NSRunningApplication) {
-        self.init(bundleIdentifier: app.bundleIdentifier, localizedName: app.localizedName)
+        self.init(
+            bundleIdentifier: app.bundleIdentifier,
+            localizedName: app.localizedName,
+            processIdentifier: app.processIdentifier,
+            executablePath: app.executableURL?.path
+        )
     }
 }
 

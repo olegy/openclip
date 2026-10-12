@@ -60,7 +60,7 @@ Each subsystem owns a dedicated `LogChannel` property on `Log` under the `com.op
 | `coordinator`    | action coordination / enablement evaluation                 |
 | `shell`          | `ShellProcessRunner` (subprocess watchdog, timeout)         |
 | `js`             | `OpenClipJSHost` runtime                                    |
-| `selection`      | `SelectionRetrievalCoordinator` + strategies / `MacSelectionMonitor` (gate decisions, mode routing, AX + pasteboard + keyboard retrieval); `PasteAvailabilityProbe` limit and time-limit results |
+| `selection`      | `SelectionRetrievalCoordinator` + strategies / `MacSelectionMonitor` (gate decisions, window gesture rejection, mode routing, AX + pasteboard + keyboard retrieval); `AutomaticCopyCapture` authorization skips and posted copy triggers (PID only); `PasteAvailabilityProbe` limit and time-limit results |
 | `extensions`     | `ExtensionManager`, remote installer, extension store/onboarding install & uninstall, **manifest decode/validation rejections** |
 | `ai`             | AI providers and preset persistence                         |
 | `permissions`    | TCC / accessibility permission management                   |
@@ -129,3 +129,66 @@ OpenClip provides a fast, built-in CLI log reader powered directly by `DebugLogS
 - **Zero Polling Overhead**: Normal app operation has zero polling timers or `OSLogService.xpc` CPU usage.
 - **Flags**: `--category=`, `--level=`, `--count=`, `--collect=` (seconds, default 4), `--help`.
 - It cold-launches the app, runs extension loading (so load/reject lines are produced), waits for collection, prints matching lines to stdout, and exits 0 (`2` on usage errors). This is the quickest agent check for "did my extension load or reject?".
+
+
+### Selection log noise and correlation
+
+Selection retrieval emits one `selection completed` event for each read, including fast
+native successes. The summary carries the request trace ID, trigger, bundle ID,
+configured and winning strategies, outcome, attempt count, fallback reason when applicable,
+and timings/retry counts for phases that ran. Timings are in microseconds. AX inspection
+time is also included within web/evidence settling durations; these overlapping measurements
+must not be summed to estimate total latency.
+
+Successful reads log at info. Empty/blocked reads log at debug, cancellations at trace,
+and changed targets, timeouts and failures at warning. Repeated AX inspections, strategy
+transitions, menu evaluation, copy polling detail and successful strategy messages log at
+trace, excluded by the app's default debug sink. Cascade reports still reach diagnostics
+consumers, but the app sink does not print a second report summary.
+
+Copy capture inherits a task-local request trace (including detached menu dispatch).
+Monitor/hotkey delivery logs keep the read's trace ID for fallback or invalidated delivery,
+and record blocked presentation decisions while omitting redundant successful delivery.
+`clipboardRestored` is included only
+when synthetic copy was posted; false means no baseline restoration occurred, including
+intentional preservation of a user copy. No selected text or clipboard contents enter the
+summary.
+
+Example (fields are sorted in actual output):
+
+```text
+[Trace#10] [cascade] selection completed [outcome=selection trigger=dragEnd configuredStrategy=ax-text-control winningStrategy=keyboard-copy elapsedMicros=453000µs webAreaRetries=5 evidenceRetries=2 clipboardRestored=true]
+```
+
+### Fullscreen selection / popup diagnostics
+
+`SelectionContext.traceID` carries the retrieval ID through mouse, hold, keyboard and
+fresh hotkey reads, cached selections, and context transformations. Search for `[Trace#N]`
+in `~/Library/Logs/OpenClip/openclip.log` across both `selection` and `presentation`.
+Include the approximate time when reporting a trace: IDs restart with the app; presentation
+records include the process ID and popup session UUID. `Trace#0` denotes an untracked
+context (for example OCR or a standalone clipboard palette), not a retrieval trace.
+
+The chain records retrieval completion, non-success monitor outcomes and blocked
+presentation decisions. Routine paste-probe progress and successful popup lifecycle logs
+are omitted. Placement failures and recovery retain detailed window metadata.
+Popup records include visibility, active-Space membership, occlusion, source/frontmost app
+IDs, app activation, key-window state, hide-on-deactivate, frame, mode and session age.
+Two session-scoped checks run 150 ms and 750 ms after ordering. Occlusion/dismissal
+events log only for an off-Space or recovering panel. These are bounded checks, not
+continuous polling. Window metadata does not prove that pixels reached the display.
+
+Toast windows have the same fullscreen eligibility as the main popup. If a toast is invisible
+or off the active Space after its bounded visibility check, `Recovering toast window` records
+visibility and Space membership at notice level under `presentation`. It contains no feedback
+message or captured text. Recovery replaces the window once without resetting its dismissal timer.
+
+For an off-Space or recovering panel, `hide()` records its caller function and line
+(or explicit reason) before clearing the session. The first delayed check
+attempts one guarded Space-membership recovery when a visible non-key action popup remains off the active Space with its source still frontmost.
+`space-recovery-start` and `space-recovery-recreated` mark the retry with a new panel
+window at notice level. The second check logs `space-recovery-unresolved` at warning
+if still off-Space, or `space-recovery-verified` when it reaches the active Space.
+The latter confirms membership, not user-observed visibility. A new show or hide
+invalidates stale checks. No selection text,
+clipboard payload, window title, or document content is logged.

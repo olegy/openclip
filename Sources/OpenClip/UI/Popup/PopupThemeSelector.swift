@@ -7,6 +7,7 @@
 // Styled with modern SettingsCard, icon tiles, and hairline dividers.
 
 import SwiftUI
+import AppKit
 import Core
 
 @MainActor
@@ -14,11 +15,14 @@ struct PopupThemeSelector: View {
     @Setting(SettingKey.popupTheme) private var theme
     @Setting(SettingKey.popupThemeColor) private var themeColor
     @Setting(SettingKey.popupScale) private var popupScale
-    @Setting(SettingKey.popupBarWidth) private var barWidthLevel
+    @Setting(SettingKey.popupPageSize) private var pageSize
+    @Setting(SettingKey.popupFitToWidth) private var fitToWidth
+    @Setting(SettingKey.showSearchAllActions) private var showSearchAllActions
     @Setting(SettingKey.popupAlignment) private var popupAlignment
     @Setting(SettingKey.popupVerticalPosition) private var popupVerticalPosition
     @Setting(SettingKey.contextualActionsEnabled) private var contextualActionsEnabled
     @Setting(SettingKey.disabledContextualActionIDs) private var disabledContextualActionIDs
+    @Setting(SettingKey.contextualPillPosition) private var contextualPillPosition
 
     @State private var isShowingContextualPopover = false
 
@@ -70,22 +74,28 @@ struct PopupThemeSelector: View {
         theme == SettingKey.popupTheme.defaultValue &&
         themeColor == SettingKey.popupThemeColor.defaultValue &&
         popupScale == SettingKey.popupScale.defaultValue &&
-        barWidthLevel == SettingKey.popupBarWidth.defaultValue &&
+        pageSize == SettingKey.popupPageSize.defaultValue &&
+        fitToWidth == SettingKey.popupFitToWidth.defaultValue &&
+        showSearchAllActions == SettingKey.showSearchAllActions.defaultValue &&
         popupAlignment == SettingKey.popupAlignment.defaultValue &&
         popupVerticalPosition == SettingKey.popupVerticalPosition.defaultValue &&
         contextualActionsEnabled == SettingKey.contextualActionsEnabled.defaultValue &&
-        disabledContextualActionIDs == SettingKey.disabledContextualActionIDs.defaultValue
+        disabledContextualActionIDs == SettingKey.disabledContextualActionIDs.defaultValue &&
+        contextualPillPosition == SettingKey.contextualPillPosition.defaultValue
     }
 
     private func resetToDefaults() {
         theme = SettingKey.popupTheme.defaultValue
         themeColor = SettingKey.popupThemeColor.defaultValue
         popupScale = SettingKey.popupScale.defaultValue
-        barWidthLevel = SettingKey.popupBarWidth.defaultValue
+        pageSize = SettingKey.popupPageSize.defaultValue
+        fitToWidth = SettingKey.popupFitToWidth.defaultValue
+        showSearchAllActions = SettingKey.showSearchAllActions.defaultValue
         popupAlignment = SettingKey.popupAlignment.defaultValue
         popupVerticalPosition = SettingKey.popupVerticalPosition.defaultValue
         contextualActionsEnabled = SettingKey.contextualActionsEnabled.defaultValue
         disabledContextualActionIDs = SettingKey.disabledContextualActionIDs.defaultValue
+        contextualPillPosition = SettingKey.contextualPillPosition.defaultValue
     }
 
     private var themeSelection: Binding<String> {
@@ -174,12 +184,39 @@ struct PopupThemeSelector: View {
                     )
                 }
 
+                SettingsDivider()
+
+                SettingsRow(title: "Fit to width") {
+                    Toggle("Fit to width", isOn: $fitToWidth)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+
+                if !fitToWidth {
+                    SettingsDivider()
+                    SettingsRow(title: "Actions Per Page") {
+                        pageSizeStepper
+                    }
+                }
+
             }
 
             SettingsCard("Behavior") {
-                SettingsRow(
-                    title: "Contextual Actions",
-                    subtitle: "Show relevant actions first based on what you select."
+                appearanceControlRow(
+                    title: "Show Command Palette",
+                    info: "Show the command palette button at the end of the popup bar."
+                ) {
+                    Toggle("", isOn: $showSearchAllActions)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .accessibilityLabel("Show Command Palette")
+                }
+
+                SettingsDivider()
+
+                appearanceControlRow(
+                    title: "Show Contextual Actions",
+                    info: "Show relevant actions first based on what you select."
                 ) {
                     HStack(spacing: 8) {
                         Button {
@@ -202,9 +239,25 @@ struct PopupThemeSelector: View {
                         Toggle("", isOn: $contextualActionsEnabled)
                             .labelsHidden()
                             .toggleStyle(.switch)
-                            .controlSize(.small)
                             .accessibilityLabel(String(localized: "Enable Contextual Actions"))
                     }
+                }
+
+                appearanceControlRow(
+                    title: "Contextual Pill",
+                    info: "Show contextual actions to the left or right of the main bar. Auto follows the horizontal position."
+                ) {
+                    segmentedPicker(
+                        selection: $contextualPillPosition,
+                        options: [
+                            AppearanceOption(label: "Auto", value: ContextualPillPosition.auto.rawValue),
+                            AppearanceOption(label: "Left", value: ContextualPillPosition.left.rawValue),
+                            AppearanceOption(label: "Right", value: ContextualPillPosition.right.rawValue),
+                        ],
+                        label: "Contextual Pill Position",
+                        width: 170
+                    )
+                    .disabled(!contextualActionsEnabled)
                 }
             }
 
@@ -241,7 +294,7 @@ struct PopupThemeSelector: View {
         }
         .labelsHidden()
         .pickerStyle(.segmented)
-        .frame(width: width, height: 24)
+        .frame(width: width, height: 24, alignment: .trailing)
         .accessibilityLabel(label)
     }
 
@@ -263,7 +316,7 @@ struct PopupThemeSelector: View {
         }
         .labelsHidden()
         .pickerStyle(.segmented)
-        .frame(width: width, height: 24)
+        .frame(width: width, height: 24, alignment: .trailing)
         .accessibilityLabel(label)
     }
 
@@ -284,10 +337,45 @@ struct PopupThemeSelector: View {
         .padding(.horizontal, SettingsDesignTokens.sectionCardPaddingH)
         .padding(.vertical, SettingsDesignTokens.sectionCardPaddingV)
         .frame(minHeight: 34)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var pageSizeStepper: some View {
+        HStack(spacing: 0) {
+            Button {
+                pageSize = max(2, min(24, pageSize - 1))
+            } label: {
+                Image(systemName: "minus")
+                    .frame(width: 30, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .disabled(pageSize <= 2)
+            .accessibilityLabel("Decrease actions per page")
+
+            Text("\(pageSize)")
+                .monospacedDigit()
+                .frame(minWidth: 30)
+                .accessibilityLabel("Actions Per Page")
+
+            Button {
+                pageSize = min(24, max(2, pageSize + 1))
+            } label: {
+                Image(systemName: "plus")
+                    .frame(width: 30, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .disabled(pageSize >= 24)
+            .accessibilityLabel("Increase actions per page")
+        }
+        .buttonStyle(.plain)
+        .buttonRepeatBehavior(.enabled)
+        .settingsGlassCapsule()
+        .onAppear { pageSize = max(2, min(24, pageSize)) }
     }
 
     private func stepSlider(
         value: Binding<Int>,
+        range: ClosedRange<Int> = 1...5,
         accessibilityLabel: LocalizedStringKey,
         labelText: String
     ) -> some View {
@@ -295,20 +383,28 @@ struct PopupThemeSelector: View {
             Slider(
                 value: Binding(
                     get: { Double(value.wrappedValue) },
-                    set: { value.wrappedValue = max(1, min(5, Int(round($0)))) }
+                    set: { newValue in
+                        let clamped = max(range.lowerBound, min(range.upperBound, Int(round(newValue))))
+                        if clamped != value.wrappedValue {
+                            value.wrappedValue = clamped
+                            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+                        }
+                    }
                 ),
-                in: 1...5,
+                in: Double(range.lowerBound)...Double(range.upperBound),
                 step: 1
             )
             .accessibilityLabel(accessibilityLabel)
             .accessibilityValue(labelText)
-            .frame(width: 110)
+            .frame(width: 104)
 
             Text(labelText)
                 .font(.system(size: 12, weight: .medium))
                 .monospacedDigit()
                 .foregroundStyle(SettingsDesignTokens.secondaryText)
-                .frame(width: 52, alignment: .trailing)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(width: 58, alignment: .trailing)
         }
         .frame(width: 170, height: 24, alignment: .trailing)
     }

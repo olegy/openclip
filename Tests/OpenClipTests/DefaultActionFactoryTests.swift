@@ -49,6 +49,37 @@ final class DefaultActionFactoryTests: XCTestCase {
         try? FileManager.default.removeItem(at: tempDir)
     }
     
+    @MainActor
+    func testFactoryPassesMergedScriptOptionsAndInjectedStore() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let script = directory.appendingPathComponent("test.sh")
+        try "#!/bin/sh\nprintf '%s|%s|%s' \"$OPENCLIP_OPTION_FORMAT\" \"$OPENCLIP_OPTION_ENABLED\" \"$OPENCLIP_OPTION_API_KEY\"".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let metadata = ExtensionActionMetadata(id: "shell", script: "test.sh", type: "shell", options: [
+            ExtensionOptionMetadata(identifier: "format", label: "Format override", type: "string", defaultValue: "json"),
+            ExtensionOptionMetadata(identifier: "api-key", label: "Key", type: "secret")
+        ])
+        let manifest = ExtensionMetadata(identifier: "com.test.options", name: "Options", actions: [metadata], options: [
+            ExtensionOptionMetadata(identifier: "format", label: "Format", type: "string", defaultValue: "plain"),
+            ExtensionOptionMetadata(identifier: "enabled", label: "Enabled", type: "boolean", defaultValue: "true")
+        ])
+        let store = SettingsActionOptionStore(store: MemorySettingsStore())
+        let factory = DefaultActionFactory(optionStore: store)
+        let created = await factory.createAction(metadata: metadata, manifest: manifest, directoryURL: directory, index: 0)
+        let action = try XCTUnwrap(created as? ScriptAction)
+        XCTAssertEqual(action.actionOptions.map(\.identifier), ["format", "enabled", "api-key"])
+        XCTAssertEqual(action.actionOptions[0].defaultValue, "json")
+        store.setStringValue("injected-secret", actionID: action.id, option: action.actionOptions[2])
+        let selection = SelectionContext(text: "input", sourceApp: AppIdentity(bundleIdentifier: "test", localizedName: "Test"),
+                                         cursorPosition: .zero, timestamp: Date(), appPolicy: .default)
+        guard case .text(let output) = try await action.perform(ActionContext(selection: selection)) else {
+            return XCTFail("Expected text")
+        }
+        XCTAssertEqual(output, "json|true|injected-secret")
+    }
+
     func testFactoryRoutesDefaultScriptToScriptAction() async {
         let factory = DefaultActionFactory()
         let actionMeta = ExtensionActionMetadata(title: "Shell Action", icon: "symbol:terminal", script: "test.sh", url: nil, regex: nil)
@@ -310,6 +341,34 @@ final class DefaultActionFactoryTests: XCTestCase {
         XCTAssertFalse(action.isEnabled(for: deniedContext))
 
         try? FileManager.default.removeItem(at: tempDir)
+    }
+
+    @MainActor
+    func testFactoryAppliesInputAndPasteTargetRequirementsToExtensionActions() async {
+        let factory = DefaultActionFactory()
+        let actionMeta = ExtensionActionMetadata(
+            title: "Editable URL",
+            url: "https://example.com",
+            requirements: ActionRequirements(input: .editableSelection, requiresPasteTarget: true)
+        )
+        let manifest = ExtensionMetadata(identifier: "com.test.capabilities", name: "Capabilities", actions: [actionMeta], options: nil)
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        guard let action = await factory.createAction(metadata: actionMeta, manifest: manifest, directoryURL: tempDir, index: 0) as? URLTemplateAction else {
+            XCTFail("Expected URLTemplateAction")
+            return
+        }
+        XCTAssertTrue(action.chrome.requiresLiveSelection)
+        let editable = ActionContext(selection: SelectionContext(text: "word", source: .selection, isEditable: true, pasteTargetAvailable: true))
+        let readOnly = ActionContext(selection: SelectionContext(text: "word", source: .selection, isEditable: false, pasteTargetAvailable: true))
+        let clipboard = ActionContext(selection: SelectionContext(text: "word", source: .clipboard, pasteTargetAvailable: true))
+        let noPasteTarget = ActionContext(selection: SelectionContext(text: "word", source: .selection, isEditable: true, pasteTargetAvailable: false))
+        XCTAssertTrue(action.isEnabled(for: editable))
+        XCTAssertFalse(action.isEnabled(for: readOnly))
+        XCTAssertFalse(action.isEnabled(for: clipboard))
+        XCTAssertFalse(action.isEnabled(for: noPasteTarget))
     }
 
     @MainActor

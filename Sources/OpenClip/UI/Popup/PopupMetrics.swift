@@ -11,13 +11,19 @@ import SwiftUI
 import AppKit
 
 public enum PopupMetrics {
+    /// Brief arrival grace for OCR popups: recognition can take long enough that the cursor has
+    /// moved away from the original release point before the popup appears.
+    static let ocrArrivalDismissalGrace: TimeInterval = 1.0
     /// Standard width and height of an action button in the popup bar and sub-bar (normalized baseline at 1.0 scale).
-    public static let actionButtonWidth: CGFloat = 34.0
-    public static let barButtonHeight: CGFloat = 29.0
+    public static let actionButtonWidth: CGFloat = 39.0
+    public static let barButtonHeight: CGFloat = 33.5
     /// Maximum baseline width (pt at 1.0 scale) for an inline result button in the bar.
-    public static let inlineResultMaxWidth: CGFloat = 150.0
+    public static let inlineResultMaxWidth: CGFloat = 172.0
     /// Horizontal padding (pt at 1.0 scale) inside an expanded inline result button.
-    public static let inlineResultHorizontalPadding: CGFloat = 8.0
+    public static let inlineResultHorizontalPadding: CGFloat = 9.0
+    /// Row inset at each end of a group sub-bar. The highlight subtracts this from its outer
+    /// inset so the total gap to the card edge stays equal to the main bar's 3 pt gap.
+    public static let subBarEndInset: CGFloat = 1.0
     /// Cross-fade duration (seconds) between button rest icon/text and computed result.
     /// Benchmark (Tier 1 p95=0.01ms, Tier 2 p50=12.9ms): perceptual floor of 0.20s
     /// plus 2× Tier 2 p50 → 0.046s raw; rounded up to 0.05s, then bumped to 0.22s so
@@ -52,29 +58,34 @@ public enum PopupMetrics {
     /// Fork: 240 (upstream 120, sized for its 340 pt palette) — the Spotlight palette is 680 pt wide.
     public static let inlineSearchAccessoryMaxWidth: CGFloat = 240.0
     /// Corner radius for popup action bars and sub-bars (normalized baseline).
-    public static let popupCornerRadius: CGFloat = 12.0
+    public static let popupCornerRadius: CGFloat = 14.0
     /// Corner radius for modal result cards and the action-search palette.
-    public static let cardCornerRadius: CGFloat = 14.0
-    /// Corner radius for the action-search palette.
-    public static let searchCornerRadius: CGFloat = 14.0
+    public static let cardCornerRadius: CGFloat = 22.0
+    /// Corner radius for the action-search palette, reduced by 2 pt from the shared card radius.
+    public static let searchCornerRadius: CGFloat = 20.0
     /// Corner radius for individual search palette result rows.
-    public static let searchRowCornerRadius: CGFloat = 8.0
+    public static let searchRowCornerRadius: CGFloat = 10.0
+    /// Shared radius for footer controls in the search palette and result card.
+    public static let footerButtonCornerRadius: CGFloat = 10.0
     /// Corner radius for floating toast bubbles.
     public static let toastCornerRadius: CGFloat = 14.0
     /// Maximum character length displayed in floating toast bubbles before truncating with an ellipsis.
     public static let toastMaxCharacterLength: Int = 40
     /// Gap between a toast bubble and the popup edge it attaches to.
     public static let toastAnchorGap: CGFloat = 8.0
+    /// Prefer clearing the action/group bar above, without moving feedback far past a tall card.
+    public static let toastPreferredAboveDistance: CGFloat = 140.0
+    /// Separation between the OCR toast window and the visible action bar.
+    public static let captureStatusGap: CGFloat = 6.0
     /// Transparent ring (pt) around the toast bubble inside the panel frame: the controller centers
     /// the bubble in a window inflated by this amount so its SwiftUI drop shadow (radius 4, y 1)
     /// renders instead of being clipped at the window edge — worst at the rounded corners, where the
-    /// blur spreads diagonally. `ToastContainerView` returns nil from hit-testing for this ring, so
-    /// even when the panel accepts pointer events (to hold the toast under the cursor) the ring
-    /// still lets clicks fall through to the app underneath.
+    /// blur spreads diagonally. `ToastContainerView` excludes this ring from view hit-testing
+    /// so it does not activate cancellable loading pills.
     public static let toastShadowInset: CGFloat = 8.0
     public static let popupPadding: CGFloat = 8.0
     /// Gap between the prioritized contextual actions island and the standard actions island in the split popup bar.
-    public static let splitIslandGap: CGFloat = 8.0
+    public static let splitIslandGap: CGFloat = 9.0
     /// Card drop-shadow geometry, mirrored by `PopupCardChromeModifier` (`PopupThemeModel.swift`).
     /// A tight contact shadow grounds the card and a low-alpha ambient lifts it. The ambient blur
     /// spreads beyond its nominal `radius` before fading out and its `y` offset pushes that spread
@@ -111,18 +122,18 @@ public enum PopupMetrics {
     /// above the action bar instead of below (numerically equals `popupDismissalDistance`).
     public static let cardAboveThreshold: CGFloat = 280.0
     /// Action-search palette sizing: content width, total panel width, visible result rows and result row height.
-    /// Fork: 2× upstream's 340 pt column.
+    /// Fork: fixed 680 pt (upstream: 320 pt).
     public static let searchPanelContentWidth: CGFloat = 680.0
     public static var searchPanelWidth: CGFloat { searchPanelContentWidth + 2 * popupShadowInset }
     public static let searchMaxRows: Int = 6
-    public static let searchResultRowHeight: CGFloat = 31
+    public static let searchResultRowHeight: CGFloat = 30
     /// Fraction of an extra result row shown beyond `searchMaxRows` so the next action peeks,
     /// hinting that the list scrolls.
     public static let searchPeekRowFraction: CGFloat = 0.0
-    /// Smallest size the palette allows: compacts to default width (340 pt) and visible rows height.
+    /// Smallest width the palette allows; matches the default content width.
     public static let searchPaletteMinWidth: CGFloat = searchPanelContentWidth
-    /// Fork: 1.5× upstream's 276 pt. The minimum wins over `PopupSearchView.defaultHeight`, so this
-    /// is the palette's height; the result card takes the same size (see `ForkBehavior`).
+    /// Fork: fixed 414 pt (upstream: 270 pt). The minimum wins over `PopupSearchView.defaultHeight`,
+    /// so this is the palette's height; the result card takes the same size (see `ForkBehavior`).
     public static let searchPaletteMinHeight: CGFloat = 414.0
     /// Shared height cap for the popup panel (search palette field + result rows and content cards).
     /// Lifted per session via `PopupPanel.heightCap` while a resizable surface shows.
@@ -162,6 +173,14 @@ public enum PopupMetrics {
         case 5: return 1.22
         default: return 1.00
         }
+    }
+
+    /// Maximum screen fraction the popup bar can occupy before wrapping to the next page.
+    public static let maxScreenFraction: CGFloat = 0.50
+
+    /// Maximum allowable bar width based on the screen width (half the screen width).
+    public static func maxBarWidth(for screenWidth: CGFloat) -> CGFloat {
+        screenWidth * maxScreenFraction
     }
 
     /// Converts a 1...5 discrete bar width level to a maximum baseline width budget (pt at 1.0 scale).

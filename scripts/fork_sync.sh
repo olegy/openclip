@@ -25,13 +25,13 @@ KNOWN_DEBT="docs/architecture/known-debt.md"
 # Code upstream may change without a textual conflict that still matters to the fork.
 # One entry per line: <path prefix>|<why it matters>. Keep in step with AGENTS.md "This is a fork".
 HOT_SPOTS='project.yml|version suffix, Sparkle feed/key (must stay absent), package versions
-Sources/OpenClip/UI/Popup/|palette placement/size, source footer, row accessories, dismissal rules
+Sources/OpenClip/UI/Popup/|palette placement/size, source footer (drives the upstream source switch), row accessories, dismissal rules, toast placement
 Sources/OpenClip/Platform/HotkeyManager.swift|palette hotkey reads the selection on demand
 Sources/OpenClip/Platform/MacSelectionMonitor.swift|passive monitor is never started in the fork
 Sources/OpenClip/Platform/Selection/|selection retrieval used by the hotkey
 Sources/OpenClip/StatusBarController.swift|hidden pause / Report Issue menu items
 Sources/OpenClip/AppDelegate.swift|startup wiring: monitor off, Sparkle off
-Sources/OpenClip/Platform/AppUpdateManager.swift|auto-updates must stay off
+Sources/OpenClip/Platform/AppUpdateManager.swift|auto-updates must stay off (updatesEnabled needs a feed; currentFeedURL falls back to the upstream feed)
 Sources/OpenClip/UI/Preferences/GeneralTabView.swift|hidden monitor/update settings
 Sources/OpenClip/UI/Preferences/AppRulesTab.swift|hidden monitor settings
 Sources/OpenClip/OpenClip.entitlements|verify_signing.sh compares it to the signed artifact
@@ -158,8 +158,10 @@ import os, re
 path = "project.yml"
 text = open(path).read()
 block = re.compile(r"<<<<<<< [^\n]*\n(.*?)(?:\|\|\|\|\|\|\| [^\n]*\n.*?)?=======\n.*?>>>>>>> [^\n]*\n", re.S)
-# Only the conflict that holds the fork's version lines is ours to settle.
-text = block.sub(lambda m: m.group(1) if "OPENCLIP_MOD_REVISION" in m.group(1) else m.group(0), text)
+# Only the conflicts that hold the fork's version lines or its Sparkle settings (no feed, no
+# automatic checks) are ours to settle; keep our side of those.
+ours = re.compile(r"OPENCLIP_MOD_REVISION|SUEnableAutomaticChecks|SUAutomaticallyUpdate")
+text = block.sub(lambda m: m.group(1) if ours.search(m.group(1)) else m.group(0), text)
 version, build = os.environ["NEW_VERSION"], os.environ["NEW_BUILD"]
 text = re.sub(r'(MARKETING_VERSION: ")[^+"]*(\+mod\.)', r"\g<1>%s\g<2>" % version, text)
 text = re.sub(r'(OPENCLIP_MOD_REVISION: )"\d+"', r'\1"1"', text)
@@ -177,13 +179,17 @@ PY
 
     if echo "$conflicted" | grep -qx OpenClip.xcodeproj/project.pbxproj; then
         git checkout --theirs OpenClip.xcodeproj/project.pbxproj
-        xcodegen generate --quiet
-        git add OpenClip.xcodeproj/project.pbxproj
-        echo "project.pbxproj: regenerated from project.yml"
+        if grep -qE '^(<<<<<<<|>>>>>>>) ' project.yml; then
+            echo "project.pbxproj: took upstream's; run xcodegen generate once project.yml is resolved"
+        else
+            xcodegen generate --quiet
+            git add OpenClip.xcodeproj/project.pbxproj
+            echo "project.pbxproj: regenerated from project.yml"
+        fi
     fi
 
     # The AGENTS.md fork section cites the current version as an example.
-    sed -i '' -E "s/\(e\.g\. \`[0-9.]+\+mod\.2\`\)/(e.g. \`$new_version+mod.2\`)/" AGENTS.md
+    sed -i '' -E "s/\(e\.g\. \`[0-9.]+\+mod\.[0-9]+\`\)/(e.g. \`$new_version+mod.1\`)/" AGENTS.md
 
     local left
     left="$(git diff --name-only --diff-filter=U)"
@@ -197,7 +203,7 @@ PY
 # Test names listed under "Known failures" in known-debt.md, as Class.test.
 baseline_failures() {
     sed -n '/Known failures/,/^- \*\*Removed/p' "$KNOWN_DEBT" \
-        | grep -oE '`[A-Za-z0-9_]+Tests\.[A-Za-z0-9_]+`' | tr -d '`' | sort -u
+        | grep -oE '`[A-Za-z0-9_]+Tests\.[A-Za-z0-9_]+`' | tr -d '`' | sort -u || true
 }
 
 verify() {
@@ -251,9 +257,9 @@ verify() {
         local log="$tmp/test-$i.log"
         ./scripts/test.sh > "$log" 2>&1 || true
         local executed failed
-        executed="$(grep -E 'Executed [0-9]+ tests' "$log" | tail -1 | sed -E 's/^[[:space:]]*//')"
+        executed="$(grep -E 'Executed [0-9]+ tests' "$log" | tail -1 | sed -E 's/^[[:space:]]*//' || true)"
         failed="$(grep -oE 'error: -\[OpenClipTests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' "$log" \
-            | sed -E 's/error: -\[OpenClipTests\.([A-Za-z0-9_]+) ([A-Za-z0-9_]+)\]/\1.\2/' | sort -u)"
+            | sed -E 's/error: -\[OpenClipTests\.([A-Za-z0-9_]+) ([A-Za-z0-9_]+)\]/\1.\2/' | sort -u || true)"
         echo "run $i: ${executed:-no summary (build failed? see $log)}"
         if [ -z "$executed" ]; then problems=1; continue; fi
         local name

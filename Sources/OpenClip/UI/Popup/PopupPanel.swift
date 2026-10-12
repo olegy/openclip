@@ -54,7 +54,7 @@ public class PopupPanel: NSPanel {
         set { horizontalAnchor = newValue ? .center : .none }
     }
 
-    /// True for the duration of a user drag of the panel (result card header). The controller's
+    /// True for the duration of a user drag of the panel (result card or search header). The controller's
     /// hover tracking stops toggling `ignoresMouseEvents` while it is set: a fast drag can take the
     /// cursor across the transparent shadow ring, and making the panel ignore mouse events
     /// mid-drag would strand it under the pointer.
@@ -68,15 +68,16 @@ public class PopupPanel: NSPanel {
             defer: false
         )
         self.level = .popUpMenu
-        self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        // Explicitly eligible to join another app's fullscreen Space (macOS 13+).
+        self.collectionBehavior = [.canJoinAllSpaces, .canJoinAllApplications, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         self.backgroundColor = .clear
         self.isOpaque = false
         self.hasShadow = false   // SwiftUI draws its own shadow; panel shadow causes double artifacts
         self.acceptsMouseMovedEvents = true
-        self.isMovable = true    // borderless, but the result card moves the panel by its header
+        self.isMovable = true    // borderless; SwiftUI header gestures move the panel
     }
 
-    /// Opens a user drag of the panel (the result card's header handle). The move itself is driven
+    /// Opens a user drag of the panel (the result card or search header). The move itself is driven
     /// by `PopupWindowController.handleCardDrag` — AppKit's own `performDrag` is unreachable here,
     /// since `NSHostingView` answers `hitTest` for the whole card and never lets an AppKit handle
     /// see the `mouseDown`. The user placing the panel deliberately outranks automatic placement,
@@ -104,6 +105,19 @@ public class PopupPanel: NSPanel {
     public final class ContentView: NSHostingView<PopupView> {
         private var trackingAreaRef: NSTrackingArea?
 
+        /// Hover tracking for the case the event monitors cannot cover: while OpenClip is inactive
+        /// (notably with the popup floating over *another* app's fullscreen Space) neither the global
+        /// monitor (own-window events are not "global") nor the local monitor (the app is not active
+        /// and the panel is not key) delivers `mouseMoved`, and SwiftUI `.onHover` does not fire for
+        /// an inactive non-key window either. An `.activeAlways` tracking area still delivers
+        /// moved/entered/exited to the view, so the controller routes these into the same hover
+        /// pipeline and the sub-bar/tooltips come back. Enter/exit also route here: a SwiftUI relayout
+        /// can remove and re-add the tracking area, emitting a spurious exit while the cursor is still
+        /// on the bar, so the controller must recompute from the live pointer rather than blind-clear.
+        /// Click-through toggling is skipped on this path (see `handleTrackingMouseMoved`) because
+        /// there is no monitor to notice re-entry.
+        var onMouseMoved: (() -> Void)?
+
         /// Pure hit-test rule (unit-testable without a live SwiftUI tree): only the area inside the
         /// shadow ring belongs to the popup.
         public static func isInsideClickableRegion(point: NSPoint, bounds: NSRect) -> Bool {
@@ -128,7 +142,7 @@ public class PopupPanel: NSPanel {
             }
             let area = NSTrackingArea(
                 rect: bounds,
-                options: [.cursorUpdate, .activeAlways, .inVisibleRect, .mouseEnteredAndExited],
+                options: [.cursorUpdate, .activeAlways, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved],
                 owner: self,
                 userInfo: nil
             )
@@ -143,6 +157,17 @@ public class PopupPanel: NSPanel {
         public override func mouseEntered(with event: NSEvent) {
             super.mouseEntered(with: event)
             NSCursor.arrow.set()
+            onMouseMoved?()
+        }
+
+        public override func mouseMoved(with event: NSEvent) {
+            super.mouseMoved(with: event)
+            onMouseMoved?()
+        }
+
+        public override func mouseExited(with event: NSEvent) {
+            super.mouseExited(with: event)
+            onMouseMoved?()
         }
 
         public override func resetCursorRects() {

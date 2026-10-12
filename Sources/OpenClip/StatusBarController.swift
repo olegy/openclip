@@ -8,23 +8,30 @@ import AppKit
 import SwiftUI
 import Combine
 import Core
+import KeyboardShortcuts
 
 /// Manages the menu bar status icon for OpenClip.
 @MainActor
-class StatusBarController: NSObject, NSMenuDelegate {
+class StatusBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private let settingsStore: any SettingsStore
     private let notificationCenter: NotificationCenter
     private var statusItem: NSStatusItem?
     private var preferencesWindow: NSWindow?
     private var preferencesToolbarController: PreferencesToolbarController?
-    private var rootMenu: NSMenu?
+    internal var rootMenu: NSMenu?
+    internal var captureTextMenuItem: NSMenuItem?
+    internal var settingsMenuItem: NSMenuItem?
+    internal var actionsMenuItem: NSMenuItem?
     internal var resumeItem: NSMenuItem?
     internal var toggleEnabledItem: NSMenuItem?
     internal var pauseAppItem: NSMenuItem?
+    internal var pauseAppSeparatorItem: NSMenuItem?
     internal var pauseSubmenu: NSMenu?
+    internal var pauseParentMenuItem: NSMenuItem?
     internal var updateMenuItem: NSMenuItem?
     internal var actionsSubmenu: NSMenu?
     internal var targetAppOverride: NSRunningApplication?
+    var onCaptureText: ((NSRunningApplication?) -> Void)?
     private var lastActiveApp: NSRunningApplication?
     internal var currentTargetApp: NSRunningApplication? {
         get { targetAppOverride ?? resolveFrontmostApp() }
@@ -83,6 +90,14 @@ class StatusBarController: NSObject, NSMenuDelegate {
             }
             .store(in: &cancellables)
 
+        AppUpdateManager.shared.$hasUpdateReminder
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.updateStatusIcon(isEnabled: self.settingsStore.get(.isAppEnabled))
+            }
+            .store(in: &cancellables)
+
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
             selector: #selector(handleWorkspaceAppActivated(_:)),
@@ -123,8 +138,9 @@ class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(resume)
         self.resumeItem = resume
         
-        // Section 1: Core State Toggle
+        // Section 1: Core State & Trigger Modes
         let isEnabled = settingsStore.get(.isAppEnabled)
+
         let toggleItem = NSMenuItem(
             title: String(localized: "Appear Automatically"),
             action: #selector(toggleEnabled),
@@ -136,6 +152,9 @@ class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(toggleItem)
         self.toggleEnabledItem = toggleItem
 
+        // Pause Submenu (App-specific & Snooze)
+        let pauseMenu = NSMenu(title: String(localized: "Pause"))
+
         // Dynamic Pause in <Current App>
         let pauseApp = NSMenuItem(
             title: String(localized: "Pause in App"),
@@ -144,11 +163,14 @@ class StatusBarController: NSObject, NSMenuDelegate {
         )
         pauseApp.target = self
         pauseApp.isHidden = true
-        menu.addItem(pauseApp)
+        pauseMenu.addItem(pauseApp)
         self.pauseAppItem = pauseApp
 
-        // Pause Submenu (Snooze)
-        let pauseMenu = NSMenu(title: String(localized: "Pause"))
+        let pauseAppSep = NSMenuItem.separator()
+        pauseAppSep.isHidden = true
+        pauseMenu.addItem(pauseAppSep)
+        self.pauseAppSeparatorItem = pauseAppSep
+
         let pause30 = menuItem(title: String(localized: "Pause for 30 Minutes"), action: #selector(pause30Minutes))
         let pause60 = menuItem(title: String(localized: "Pause for 1 Hour"), action: #selector(pause1Hour))
         let pauseDay = menuItem(title: String(localized: "Pause Until Tomorrow"), action: #selector(pauseUntilTomorrow))
@@ -161,23 +183,30 @@ class StatusBarController: NSObject, NSMenuDelegate {
         pauseParent.submenu = pauseMenu
         pauseParent.isHidden = !ForkBehavior.pauseMenuItems
         menu.addItem(pauseParent)
+        self.pauseParentMenuItem = pauseParent
         
         let stateSeparator = NSMenuItem.separator()
         stateSeparator.isHidden = !ForkBehavior.pauseMenuItems
         menu.addItem(stateSeparator)
 
         // Section 2: Core App Navigation
-        let prefsItem = menuItem(title: String(localized: "Settings…"), action: #selector(showPreferences as () -> Void), keyEquivalent: ",")
-        menu.addItem(prefsItem)
+        let captureItem = menuItem(title: String(localized: "Capture Text"), action: #selector(captureText))
+        captureItem.setShortcut(for: .captureText)
+        self.captureTextMenuItem = captureItem
+        menu.addItem(captureItem)
 
         let actionsMenu = NSMenu(title: String(localized: "Actions"))
         actionsMenu.delegate = self
         self.actionsSubmenu = actionsMenu
-        
+
         let actionsItem = NSMenuItem(title: String(localized: "Actions"), action: nil, keyEquivalent: "")
         actionsItem.submenu = actionsMenu
+        self.actionsMenuItem = actionsItem
         menu.addItem(actionsItem)
-        
+
+        let prefsItem = menuItem(title: String(localized: "Settings…"), action: #selector(showPreferences as () -> Void), keyEquivalent: ",")
+        self.settingsMenuItem = prefsItem
+        menu.addItem(prefsItem)
         menu.addItem(NSMenuItem.separator())
 
         // Section 3: Updates & Support
@@ -216,6 +245,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
             updateMenuItem.title = String(localized: "Check for Updates…")
         }
         updateMenuItem.image = nil
+        updateMenuItem.isEnabled = AppUpdateManager.shared.updatesEnabled
     }
 
     var updateMenuItemTitle: String? {
@@ -240,7 +270,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
         return item
     }
 
-    @objc private func toggleEnabled() {
+    @objc internal func toggleEnabled() {
         let current = settingsStore.get(.isAppEnabled)
         let newStatus = !current
         settingsStore.set(.isAppEnabled, value: newStatus)
@@ -248,11 +278,31 @@ class StatusBarController: NSObject, NSMenuDelegate {
         notificationCenter.post(name: .openClipEnabledStateChanged, object: newStatus)
     }
 
+
+    @objc private func captureText() {
+        let app = currentTargetApp
+        DispatchQueue.main.async { [weak self] in self?.onCaptureText?(app) }
+    }
+
     // MARK: - NSMenuDelegate
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(checkForUpdates) {
+            return AppUpdateManager.shared.updatesEnabled
+        }
+        return menuItem.isEnabled
+    }
 
     func menuWillOpen(_ menu: NSMenu) {
         if menu === rootMenu {
+            KeyboardShortcuts.disable(.captureText)
             updateRootMenuDynamicItems()
+        }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        if menu === rootMenu {
+            KeyboardShortcuts.enable(.captureText)
         }
     }
 
@@ -278,13 +328,11 @@ class StatusBarController: NSObject, NSMenuDelegate {
         let actions = ActionCoordinator.shared.actions
         let customGroupMemberIDs = Set(ActionCoordinator.shared.actionGroupDefs.flatMap(\.memberActionIDs))
         let disabledActionIDs = settingsStore.get(.disabledActionIDs)
-        let isAIEnabled = settingsStore.get(.isAIEnabled)
 
         let items = TopLevelActionResolver.resolveTopLevelItems(
             from: actions,
             customGroupMemberIDs: customGroupMemberIDs,
             disabledActionIDs: disabledActionIDs,
-            isAIEnabled: isAIEnabled,
             presentationProvider: { action in
                 ActionCustomizationManager.shared.presented(action, surface: .table)
             }
@@ -317,27 +365,16 @@ class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc private func toggleActionItem(_ sender: NSMenuItem) {
         guard let item = sender.representedObject as? TopLevelActionItem else { return }
-        if item.isAI {
-            let current = settingsStore.get(.isAIEnabled)
-            let newStatus = !current
-            settingsStore.set(.isAIEnabled, value: newStatus)
-            AIServiceManager.shared.isAIEnabled = newStatus
-            sender.state = newStatus ? .on : .off
-            notificationCenter.post(name: .openClipEnabledStateChanged, object: nil)
+        var disabledActionIDs = settingsStore.get(.disabledActionIDs)
+        if disabledActionIDs.contains(item.id) {
+            disabledActionIDs.remove(item.id)
+            sender.state = .on
         } else {
-            var disabledActionIDs = settingsStore.get(.disabledActionIDs)
-            let isCurrentlyDisabled = disabledActionIDs.contains(item.id)
-            if isCurrentlyDisabled {
-                disabledActionIDs.remove(item.id)
-                settingsStore.set(.disabledActionIDs, value: disabledActionIDs)
-                sender.state = .on
-            } else {
-                disabledActionIDs.insert(item.id)
-                settingsStore.set(.disabledActionIDs, value: disabledActionIDs)
-                sender.state = .off
-            }
-            notificationCenter.post(name: .openClipEnabledStateChanged, object: nil)
+            disabledActionIDs.insert(item.id)
+            sender.state = .off
         }
+        settingsStore.set(.disabledActionIDs, value: disabledActionIDs)
+        notificationCenter.post(name: .openClipEnabledStateChanged, object: nil)
     }
 
     internal func updateRootMenuDynamicItems() {
@@ -356,12 +393,14 @@ class StatusBarController: NSObject, NSMenuDelegate {
         }
 
         let frontApp = currentTargetApp
-        if let frontApp, let bundleID = frontApp.bundleIdentifier {
-            let appName = frontApp.localizedName ?? String(localized: "Current App")
-            let policy = RuleEngine.shared.resolvePolicies(for: bundleID)
+        let frontIdentity = frontApp.map { AppIdentity($0) }
+        if let frontApp, let identity = frontIdentity, identity.ruleIdentifier != nil {
+            let appName = frontApp.localizedName ?? identity.processName ?? String(localized: "Current App")
+            let policy = RuleEngine.shared.resolvePolicies(for: identity)
             let isAppDisabled = policy.disabled
 
             pauseAppItem?.isHidden = !ForkBehavior.pauseMenuItems
+            pauseAppSeparatorItem?.isHidden = !ForkBehavior.pauseMenuItems
             if isAppDisabled {
                 pauseAppItem?.title = String(localized: "Paused in \(appName)")
                 pauseAppItem?.state = .on
@@ -372,6 +411,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
             pauseAppItem?.image = nil
         } else {
             pauseAppItem?.isHidden = true
+            pauseAppSeparatorItem?.isHidden = true
         }
 
         updateStatusIcon(isEnabled: isEnabled)
@@ -386,13 +426,13 @@ class StatusBarController: NSObject, NSMenuDelegate {
 
     private func isValidTargetApp(_ app: NSRunningApplication?) -> Bool {
         guard let app,
-              let bundleID = app.bundleIdentifier,
-              bundleID != Bundle.main.bundleIdentifier,
-              !AppFilter.isExcluded(bundleID: bundleID),
+              app.bundleIdentifier != Bundle.main.bundleIdentifier,
               app.activationPolicy == .regular else {
             return false
         }
-        return true
+        // Bundle-less processes (CLI tools such as scrcpy) are targetable via name/path.
+        return app.bundleIdentifier.map { !AppFilter.isExcluded(bundleID: $0) }
+            ?? (AppIdentity(app).ruleIdentifier != nil)
     }
 
     private func resolveFrontmostApp() -> NSRunningApplication? {
@@ -452,12 +492,14 @@ class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc internal func toggleCurrentAppPause() {
-        guard let app = currentTargetApp, let bundleID = app.bundleIdentifier else { return }
-        let policy = RuleEngine.shared.resolvePolicies(for: bundleID)
+        guard let app = currentTargetApp else { return }
+        let identity = AppIdentity(app)
+        guard let identifier = identity.ruleIdentifier else { return }
+        let policy = RuleEngine.shared.resolvePolicies(for: identity)
         if policy.disabled {
-            if let existingRule = RuleEngine.shared.userRules.first(where: { $0.bundleIdentifiers.contains(bundleID) }) {
+            if let existingRule = RuleEngine.shared.userRules.first(where: { $0.bundleIdentifiers.contains(identifier) }) {
                 if existingRule.bundleIdentifiers.count > 1 {
-                    let remainingIDs = existingRule.bundleIdentifiers.filter { $0 != bundleID }
+                    let remainingIDs = existingRule.bundleIdentifiers.filter { $0 != identifier }
                     let updatedRule = AppRule(
                         bundleIdentifiers: remainingIDs,
                         disabled: existingRule.disabled,
@@ -471,7 +513,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
                     RuleEngine.shared.addOrUpdateRule(updatedRule, saveURL: rulesSaveURL)
                 } else if existingRule.hotkeyOnly != nil || existingRule.useMenuCopy != nil || existingRule.denyPaste != nil || existingRule.retrievalMode != nil || existingRule.gate != nil {
                     let updatedRule = AppRule(
-                        bundleIdentifiers: [bundleID],
+                        bundleIdentifiers: [identifier],
                         disabled: false,
                         hotkeyOnly: existingRule.hotkeyOnly,
                         useMenuCopy: existingRule.useMenuCopy,
@@ -484,14 +526,14 @@ class StatusBarController: NSObject, NSMenuDelegate {
                     RuleEngine.shared.removeRule(id: existingRule.id, saveURL: rulesSaveURL)
                 }
             } else {
-                let overrideRule = AppRule(bundleIdentifiers: [bundleID], disabled: false)
+                let overrideRule = AppRule(bundleIdentifiers: [identifier], disabled: false)
                 RuleEngine.shared.addOrUpdateRule(overrideRule, saveURL: rulesSaveURL)
             }
         } else {
-            if let existingRule = RuleEngine.shared.userRules.first(where: { $0.bundleIdentifiers.contains(bundleID) }) {
-                if existingRule.bundleIdentifiers == [bundleID] {
+            if let existingRule = RuleEngine.shared.userRules.first(where: { $0.bundleIdentifiers.contains(identifier) }) {
+                if existingRule.bundleIdentifiers == [identifier] {
                     let updatedRule = AppRule(
-                        bundleIdentifiers: [bundleID],
+                        bundleIdentifiers: [identifier],
                         disabled: true,
                         hotkeyOnly: existingRule.hotkeyOnly,
                         useMenuCopy: existingRule.useMenuCopy,
@@ -501,7 +543,7 @@ class StatusBarController: NSObject, NSMenuDelegate {
                     )
                     RuleEngine.shared.addOrUpdateRule(updatedRule, saveURL: rulesSaveURL)
                 } else {
-                    let remainingIDs = existingRule.bundleIdentifiers.filter { $0 != bundleID }
+                    let remainingIDs = existingRule.bundleIdentifiers.filter { $0 != identifier }
                     let updatedRule = AppRule(
                         bundleIdentifiers: remainingIDs,
                         disabled: existingRule.disabled,
@@ -514,11 +556,11 @@ class StatusBarController: NSObject, NSMenuDelegate {
                     RuleEngine.shared.removeRule(id: existingRule.id, saveURL: rulesSaveURL)
                     RuleEngine.shared.addOrUpdateRule(updatedRule, saveURL: rulesSaveURL)
 
-                    let rule = AppRule(bundleIdentifiers: [bundleID], disabled: true)
+                    let rule = AppRule(bundleIdentifiers: [identifier], disabled: true)
                     RuleEngine.shared.addOrUpdateRule(rule, saveURL: rulesSaveURL)
                 }
             } else {
-                let rule = AppRule(bundleIdentifiers: [bundleID], disabled: true)
+                let rule = AppRule(bundleIdentifiers: [identifier], disabled: true)
                 RuleEngine.shared.addOrUpdateRule(rule, saveURL: rulesSaveURL)
             }
         }
@@ -572,9 +614,14 @@ class StatusBarController: NSObject, NSMenuDelegate {
         if let button = statusItem?.button {
             button.image = NSImage(named: "MenuBarIcon") ?? NSImage(systemSymbolName: "paperclip", accessibilityDescription: "OpenClip")
             button.image?.isTemplate = true
+            let hasReminder = AppUpdateManager.shared.hasUpdateReminder
+            button.title = hasReminder ? "•" : ""
+            button.font = .systemFont(ofSize: 9, weight: .bold)
+            button.imagePosition = .imageLeft
+            button.toolTip = hasReminder ? String(localized: "OpenClip Update Available") : "OpenClip"
             button.alphaValue = effectiveEnabled ? 1.0 : 0.45
             // The enabled state must be legible beyond the purely visual alpha dimming.
-            button.setAccessibilityLabel("OpenClip")
+            button.setAccessibilityLabel(hasReminder ? String(localized: "OpenClip Update Available") : "OpenClip")
             if isPaused {
                 button.setAccessibilityValue(String(localized: "OpenClip is paused"))
             } else if !ForkBehavior.passiveSelectionMonitoring {
@@ -596,7 +643,9 @@ class StatusBarController: NSObject, NSMenuDelegate {
             toggleEnabledItem = nil
             resumeItem = nil
             pauseAppItem = nil
+            pauseAppSeparatorItem = nil
             pauseSubmenu = nil
+            pauseParentMenuItem = nil
             rootMenu = nil
             actionsSubmenu = nil
         }

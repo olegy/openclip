@@ -339,21 +339,18 @@ already visible; the bar's command-glyph button enters search via `onEnterSearch
   > re-placed right after `positionPanel` with `PopupPositioner.spotlightFrame`: horizontally
   > centered on the screen containing the mouse, its center `spotlightLift` (10 %) of the screen
   > height above the middle, results always below the field. Its size is fixed at 680 × 414 pt
-  > (`searchPanelContentWidth` / `searchPaletteMinHeight`, 2× / 1.5× upstream's 340 × 276; the
+  > (`searchPanelContentWidth` / `searchPaletteMinHeight`; upstream: 320 × 270; the
   > minimum height wins over `defaultHeight`). A result card entering content mode takes the same
   > size (`resultCardSize` + `isSurfaceUserSized`, so the remembered card size is not used) and the
   > same Spotlight frame; the loading toast centers on the palette's frame, so it lands there too.
 
-  > **Fork note — text source footer:** with `ForkBehavior.paletteSourceFooter` on, the footer's
-  > leading side shows `PaletteSourceFooter` instead of the action count: a segmented
-  > selection/clipboard switch and the start of the text on one line ("No text" when there is
-  > none). `HotkeyManager.resolvePaletteTrigger` reads the clipboard before the selection and,
-  > when the selection is read, returns the clipboard's text as `clipboard`; files copied in
-  > Finder don't count as text. `PopupWindowController.showPalette(for:alternate:pasteAvailable:)`
-  > keeps the other source in `paletteAlternateContext`. Tab (when both were read) or a click on
-  > the switch calls `switchPaletteSource(keeping:)`, which re-shows the palette on the other
-  > context — so actions, Copy/Cut availability and inline results follow the text — and seeds
-  > the new palette's query through `PopupModeStore.paletteSeedQuery`.
+  > **Fork note — text source footer:** upstream (1.8.0) offers the clipboard as the palette's
+  > alternate source (`alternateClipboardSearchContext`, the switcher icon in the search field,
+  > Tab; `PopupSearchView.activeSelectionContext`). With `ForkBehavior.paletteSourceFooter` on,
+  > the footer's leading side also shows `PaletteSourceFooter`: a segmented selection/clipboard
+  > switch for the active source (a click calls upstream's `toggleContextSource`) and the start
+  > of its text on one line ("No text" when there is none). Files copied in Finder don't count
+  > as clipboard text (`HotkeyManager.clipboardHoldsFiles`).
   > Moves go through `placeSpotlight`, which suspends `horizontalAnchor` — otherwise
   > `PopupPanel.setFrame` keeps the previous frame's midX, and AI / loading results (re-shown as a
   > bar at the cursor first) would open off-center. With no action bar to collapse to, the card's
