@@ -84,7 +84,10 @@ final class PaletteSourceTests: XCTestCase {
         let manager = HotkeyManager.shared
         let read = CopyFlag()
         manager.retriever = Self.retriever(copying: "text", onCopy: { read.isSet = true })
-        RuleEngine.shared.addOrUpdateRule(AppRule(bundleIdentifiers: ["com.test.disabled"], disabled: true))
+        // Never the real ~/.openclip/rules.json.
+        let rulesURL = FileManager.default.temporaryDirectory.appendingPathComponent("palette-rules-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: rulesURL) }
+        RuleEngine.shared.addOrUpdateRule(AppRule(bundleIdentifiers: ["com.test.disabled"], disabled: true), saveURL: rulesURL)
 
         let trigger = await manager.resolvePaletteTrigger(frontmostApp: PaletteMockApp(bundleID: "com.test.disabled"))
 
