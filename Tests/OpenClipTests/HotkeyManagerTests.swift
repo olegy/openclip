@@ -145,13 +145,19 @@ final class HotkeyManagerTests: XCTestCase {
     }
 
     func testAppWithDisabledRuleNeverTriggers() {
-        RuleEngine.shared.addOrUpdateRule(AppRule(bundleIdentifiers: ["com.test.disabled"], disabled: true))
+        // Never the real ~/.openclip/rules.json.
+        let rulesURL = FileManager.default.temporaryDirectory.appendingPathComponent("hotkey-rules-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: rulesURL) }
+        RuleEngine.shared.addOrUpdateRule(AppRule(bundleIdentifiers: ["com.test.disabled"], disabled: true), saveURL: rulesURL)
         let app = MockFrontmostApp(bundleID: "com.test.disabled")
         XCTAssertFalse(HotkeyManager.triggerAllowed(frontmost: app))
     }
 
     func testAppWithHotkeyOnlyRuleTriggers() {
-        RuleEngine.shared.addOrUpdateRule(AppRule(bundleIdentifiers: ["com.test.hotkeyonly"], hotkeyOnly: true))
+        // Never the real ~/.openclip/rules.json.
+        let rulesURL = FileManager.default.temporaryDirectory.appendingPathComponent("hotkey-rules-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: rulesURL) }
+        RuleEngine.shared.addOrUpdateRule(AppRule(bundleIdentifiers: ["com.test.hotkeyonly"], hotkeyOnly: true), saveURL: rulesURL)
         let app = MockFrontmostApp(bundleID: "com.test.hotkeyonly")
         XCTAssertTrue(HotkeyManager.triggerAllowed(frontmost: app))
     }

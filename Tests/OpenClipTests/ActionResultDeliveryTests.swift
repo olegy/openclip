@@ -306,7 +306,10 @@ final class ActionResultDeliveryTests: XCTestCase {
     @MainActor
     func testRuleEngineResolvesDenyPaste() {
         RuleEngine.shared.reset()
-        RuleEngine.shared.addOrUpdateRule(AppRule(bundleIdentifiers: ["com.example.terminal"], denyPaste: true))
+        // Never the real ~/.openclip/rules.json.
+        let rulesURL = FileManager.default.temporaryDirectory.appendingPathComponent("deny-paste-rules-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: rulesURL) }
+        RuleEngine.shared.addOrUpdateRule(AppRule(bundleIdentifiers: ["com.example.terminal"], denyPaste: true), saveURL: rulesURL)
         let policy = RuleEngine.shared.resolvePolicies(for: "com.example.terminal")
         XCTAssertTrue(policy.denyPaste)
         RuleEngine.shared.reset()
