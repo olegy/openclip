@@ -686,7 +686,7 @@ replace a newer popup.
   (`INFOPLIST_KEY_NSPrincipalClass` in `project.yml`). It snapshots the rules file before each test,
   fails any test that changes it, and restores the original bytes and modification date.
   `RulesFileGuardTests` checks that it stays wired.
-- **Known failures (baseline 2026-10-12, after the 1.8.2 sync, Xcode 27 / macOS 27, 1532 tests):**
+- **Known failures (baseline 2026-10-12, after the 1.8.2 sync, Xcode 27 / macOS 27, 1537 tests):**
   none — three full runs were green. The 2026-09-26 baseline (1326 tests) failed
   MacSelectionMonitorTests' overlay test and AIProviderTests' provider-types test every run
   (named without backticks here so `fork_sync.sh verify` no longer counts them as known); both
