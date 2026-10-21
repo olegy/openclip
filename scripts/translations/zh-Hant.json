@@ -715,5 +715,8 @@
   "Right-click an action and choose Pin to keep it at the top of the palette.": "按右鍵點一下動作並選擇「釘選」，即可將其保留在面板頂端。",
   "Pinned actions open at the top of the palette, in this order. Drag to reorder. Up to %lld actions.": "釘選的動作會依此順序顯示在面板頂端。拖移可重新排序。最多 %lld 個動作。",
   "The rest of the palette lists the most recently used actions first. Turn an action off to hide it from the palette; open it to change its alias and shortcut.": "面板其餘部分會優先列出最近使用的動作。關閉動作即可在面板中隱藏它；打開動作可更改其別名和快速鍵。",
-  "Checks the Store once a day.": "每天檢查一次商店。"
+  "Checks the Store once a day.": "每天檢查一次商店。",
+  "This display is no longer available. Try again.": "此顯示器已無法使用。請再試一次。",
+  "Could not capture this area. Try again.": "無法擷取此區域。請再試一次。",
+  "Could not read text in this area.": "無法讀取此區域中的文字。"
 }

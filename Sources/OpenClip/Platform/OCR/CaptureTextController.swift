@@ -64,29 +64,16 @@ final class CaptureTextController {
         panels = screens.map { screen in
             let panel = RegionSelectionPanel(screen: screen)
             panel.onCursorRefresh = { [weak self] in self?.cursorLease.refresh() }
-            panel.onCancel = { [weak self] in self?.cancel() }
             panel.onSelection = { [weak self] rect, releasePoint, _, selectedScreen in
                 self?.beginRecognition(rect: rect, releasePoint: releasePoint, screen: selectedScreen, requestID: id)
             }
-            panel.makeKeyAndOrderFront(nil)
+            panel.orderFrontRegardless()
             return panel
         }
-        // The window server only consults cursor rects (and honors
-        // NSCursor.push/set) for the active app: a background
-        // nonactivating overlay keeps the arrow no matter what the views
-        // request (same reason ⌘⇧4 lives in the window server itself).
-        // Follow the SnipController pattern (cf. Microsoft ZoomItMac):
-        // order a key-capable borderless overlay front, activate so its
-        // cursor rects are evaluated, then hold one explicit crosshair
-        // override for the session. Activation resets the cursor, so the
-        // lease re-asserts after it settles.
-        NSApp.activate(ignoringOtherApps: true)
-        for panel in panels {
-            panel.makeFirstResponder(panel.contentView)
-            if let view = panel.contentView {
-                panel.invalidateCursorRects(for: view)
-            }
-        }
+        // OpenClip stays inactive so the source window keeps focus: activating would blur it (Safari's
+        // AutoPiP enters Picture in Picture on blur) and can switch away from a full-screen Space.
+        // Escape arrives through the global cancel shortcut instead of a key window.
+        BackgroundCursor.setEnabled(true)
         cursorLease.begin()
     }
 
@@ -150,7 +137,8 @@ final class CaptureTextController {
                     return
                 } catch {
                     guard self.requestID == id else { return }
-                    self.showFailure(String(localized: "Could not capture text. Allow Screen Recording in System Settings, then try again."))
+                    Log.selection.error("Capture Text failed: \(String(describing: error))")
+                    self.showFailure(CaptureFailure(error).message)
                 }
             }
         }
@@ -163,7 +151,10 @@ final class CaptureTextController {
                 self.panels.removeAll()
             },
             // Pop only after AppKit has removed each overlay's cursor rects.
-            restoreCursor: { self.cursorLease.end() }
+            restoreCursor: {
+                self.cursorLease.end()
+                BackgroundCursor.setEnabled(false)
+            }
         )
     }
 
@@ -223,26 +214,89 @@ final class CaptureTextController {
     }
 
     private static func recognize(_ image: CGImage) async throws -> String {
-        try await Task.detached(priority: .userInitiated) {
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            request.automaticallyDetectsLanguage = true
-            let handler = VNImageRequestHandler(cgImage: image)
-            try handler.perform([request])
-            let observations = request.results ?? []
-            let ordered = observations.sorted {
-                if abs($0.boundingBox.midY - $1.boundingBox.midY) > 0.012 {
-                    return $0.boundingBox.midY > $1.boundingBox.midY
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        request.automaticallyDetectsLanguage = true
+        let box = RecognitionRequestBox(request: request)
+        // A detached task does not inherit cancellation, so cancel the Vision request itself.
+        return try await withTaskCancellationHandler {
+            try await Task.detached(priority: .userInitiated) {
+                try VNImageRequestHandler(cgImage: image).perform([box.request])
+                let lines = (box.request.results ?? []).compactMap { observation in
+                    observation.topCandidates(1).first.map { RecognizedTextLayout.Line(text: $0.string, box: observation.boundingBox) }
                 }
-                return $0.boundingBox.minX < $1.boundingBox.minX
-            }
-            return ordered.compactMap { $0.topCandidates(1).first?.string }
-                .joined(separator: "\n")
-        }.value
+                return RecognizedTextLayout.join(lines)
+            }.value
+        } onCancel: {
+            box.request.cancel()
+        }
+    }
+}
+
+/// Vision's request class predates Sendable; cancelling it from another thread is supported.
+private final class RecognitionRequestBox: @unchecked Sendable {
+    let request: VNRecognizeTextRequest
+    init(request: VNRecognizeTextRequest) { self.request = request }
+}
+
+enum CaptureError: Error { case displayUnavailable, noImage }
+
+/// Maps a capture or recognition error to what the user can do about it.
+enum CaptureFailure: Equatable {
+    case permission, displayUnavailable, captureFailed, recognitionFailed
+
+    init(_ error: Error) {
+        if let error = error as? CaptureError {
+            self = error == .displayUnavailable ? .displayUnavailable : .captureFailed
+        } else if let error = error as? SCStreamError {
+            self = error.code == .userDeclined ? .permission : .captureFailed
+        } else if (error as NSError).domain == VNErrorDomain {
+            self = .recognitionFailed
+        } else {
+            self = .captureFailed
+        }
     }
 
-    private enum CaptureError: Error { case displayUnavailable, noImage }
+    var message: String {
+        switch self {
+        case .permission: return String(localized: "Could not capture text. Allow Screen Recording in System Settings, then try again.")
+        case .displayUnavailable: return String(localized: "This display is no longer available. Try again.")
+        case .captureFailed: return String(localized: "Could not capture this area. Try again.")
+        case .recognitionFailed: return String(localized: "Could not read text in this area.")
+        }
+    }
+}
+
+/// Turns Vision's text lines into the copied string. Vision already returns lines in reading order,
+/// including column by column, so the order is kept; a fragment that continues the previous line
+/// (overlapping it vertically, to its right) is joined with a space instead of a line break.
+enum RecognizedTextLayout {
+    /// `box` is Vision's normalized bounding box, origin at the bottom left.
+    struct Line: Equatable {
+        let text: String
+        let box: CGRect
+    }
+
+    static func join(_ lines: [Line]) -> String {
+        var output = ""
+        var previous: Line?
+        for line in lines {
+            if let previous {
+                output += continuesLine(previous, line) ? " " : "\n"
+            }
+            output += line.text
+            previous = line
+        }
+        return output
+    }
+
+    static func continuesLine(_ previous: Line, _ next: Line) -> Bool {
+        let overlap = min(previous.box.maxY, next.box.maxY) - max(previous.box.minY, next.box.minY)
+        let shorter = min(previous.box.height, next.box.height)
+        guard shorter > 0, overlap >= shorter * 0.5 else { return false }
+        return next.box.minX >= previous.box.maxX - shorter * 0.5
+    }
 }
 
 @MainActor
@@ -361,32 +415,27 @@ struct CaptureRegionGeometry: Equatable {
 private final class RegionSelectionPanel: NSPanel {
     private let displayScreen: NSScreen
     var onCursorRefresh: (() -> Void)?
-    var onCancel: (() -> Void)?
     var onSelection: ((CGRect, CGPoint, CGPoint, NSScreen) -> Void)?
 
     init(screen: NSScreen) {
         displayScreen = screen
-        // A borderless window that can still become key (and main), so the
-        // selection view receives key events (Escape) and the crosshair
-        // cursor rects are honored. A `.nonactivatingPanel` would keep the
-        // source app active but the window server ignores cursor requests
-        // from inactive apps, so the arrow would linger over the overlay.
-        super.init(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        super.init(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isOpaque = false
         backgroundColor = .clear
         level = .screenSaver
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         acceptsMouseMovedEvents = true
+        hidesOnDeactivate = false
         contentView = RegionSelectionView(frame: CGRect(origin: .zero, size: screen.frame.size), owner: self)
     }
 
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
+    // Becoming key would take focus from the source window, which is exactly what activation did.
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
     fileprivate func refreshCaptureCursor() { onCursorRefresh?() }
     fileprivate func finish(_ rect: CGRect, releasePoint: CGPoint, mouseDownPoint: CGPoint) {
         onSelection?(rect, releasePoint, mouseDownPoint, displayScreen)
     }
-    fileprivate func cancelSelection() { onCancel?() }
 }
 
 @MainActor
@@ -399,7 +448,7 @@ private final class RegionSelectionView: NSView {
 
     init(frame: CGRect, owner: RegionSelectionPanel) { self.owner = owner; super.init(frame: frame) }
     required init?(coder: NSCoder) { nil }
-    override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -434,15 +483,8 @@ private final class RegionSelectionView: NSView {
         owner?.refreshCaptureCursor()
     }
 
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        addCursorRect(bounds, cursor: .crosshair)
-    }
-
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // The cursor rect is only evaluated once the view is in an active
-        // key window; assert immediately so no arrow frame slips through.
         if window != nil {
             NSCursor.crosshair.set()
         }
@@ -483,5 +525,4 @@ private final class RegionSelectionView: NSView {
         let releasePoint = window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
         owner?.finish(screenRect, releasePoint: releasePoint, mouseDownPoint: mouseDownScreenPoint ?? releasePoint)
     }
-    override func keyDown(with event: NSEvent) { if event.keyCode == 53 { owner?.cancelSelection() } else { super.keyDown(with: event) } }
 }

@@ -715,5 +715,8 @@
   "Right-click an action and choose Pin to keep it at the top of the palette.": "Faites un clic droit sur une action et choisissez Épingler pour la garder en haut de la palette.",
   "Pinned actions open at the top of the palette, in this order. Drag to reorder. Up to %lld actions.": "Les actions épinglées s'affichent en haut de la palette, dans cet ordre. Faites glisser pour réorganiser. Jusqu'à %lld actions.",
   "The rest of the palette lists the most recently used actions first. Turn an action off to hide it from the palette; open it to change its alias and shortcut.": "Le reste de la palette affiche d'abord les actions utilisées le plus récemment. Désactivez une action pour la masquer de la palette ; ouvrez-la pour modifier son alias et son raccourci.",
-  "Checks the Store once a day.": "Vérifie le Store une fois par jour."
+  "Checks the Store once a day.": "Vérifie le Store une fois par jour.",
+  "This display is no longer available. Try again.": "Cet écran n’est plus disponible. Réessayez.",
+  "Could not capture this area. Try again.": "Impossible de capturer cette zone. Réessayez.",
+  "Could not read text in this area.": "Impossible de lire le texte de cette zone."
 }

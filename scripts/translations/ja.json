@@ -715,5 +715,8 @@
   "Right-click an action and choose Pin to keep it at the top of the palette.": "アクションを右クリックして「ピン留め」を選ぶと、パレットの一番上に表示されます。",
   "Pinned actions open at the top of the palette, in this order. Drag to reorder. Up to %lld actions.": "ピン留めしたアクションはこの順序でパレットの一番上に表示されます。ドラッグで並べ替えできます。最大 %lld 個まで。",
   "The rest of the palette lists the most recently used actions first. Turn an action off to hide it from the palette; open it to change its alias and shortcut.": "パレットの残りは最近使ったアクションから順に表示されます。アクションをオフにするとパレットに表示されなくなり、開くとエイリアスとショートカットを変更できます。",
-  "Checks the Store once a day.": "ストアを1日1回確認します。"
+  "Checks the Store once a day.": "ストアを1日1回確認します。",
+  "This display is no longer available. Try again.": "このディスプレイは使用できなくなりました。もう一度お試しください。",
+  "Could not capture this area. Try again.": "この領域をキャプチャできませんでした。もう一度お試しください。",
+  "Could not read text in this area.": "この領域のテキストを読み取れませんでした。"
 }
