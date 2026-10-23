@@ -24,8 +24,8 @@ public struct OpenURLAction: ConfigurableAction {
     public func perform(_ context: ActionContext) async throws -> ActionResult {
         if let url = extractURL(from: context.selection.text) {
             let sourceBundleID = context.selection.sourceApp.bundleIdentifier
-            if BrowserDetector.isBrowser(bundleIdentifier: sourceBundleID), let sourceBundleID {
-                return .openURLInApp(url: url, appBundleIdentifier: sourceBundleID)
+            if let browserID = BrowserDetector.browserToOpen(url, sourceBundleIdentifier: sourceBundleID) {
+                return .openURLInApp(url: url, appBundleIdentifier: browserID)
             }
             return .openURL(url)
         }
