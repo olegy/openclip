@@ -19,6 +19,9 @@ public final class LocalExtensionInstaller: Sendable {
         alert.runModal()
     }
 
+    /// Where packages are installed. Tests point this at a temporary directory.
+    public var targetDirectory: URL = Constants.extensionsDirectory
+
     private init() {}
 
     public func configure(openPreferences: @escaping () -> Void) {
@@ -100,10 +103,10 @@ public final class LocalExtensionInstaller: Sendable {
 
         do {
             ExtensionManager.shared.prepareInstall(source: "package", packageID: initialPackageID)
-            let installedActions = try await ExtensionManager.shared.installExtension(from: fileURL, source: "package")
+            let installedActions = try await ExtensionManager.shared.installExtension(from: fileURL, targetDir: targetDirectory, source: "package")
 
             let resolvedPackageID = installedActions.compactMap { ActionIdentity.extensionPackageID(of: $0) }.first ?? initialPackageID
-            await ExtensionManager.shared.enablePackage(packageID: resolvedPackageID)
+            await ExtensionManager.shared.enablePackage(packageID: resolvedPackageID, in: targetDirectory)
 
             Log.extensions.notice("Successfully installed local extension '\(resolvedPackageID, privacy: .public)'. Total actions: \(installedActions.count)")
 

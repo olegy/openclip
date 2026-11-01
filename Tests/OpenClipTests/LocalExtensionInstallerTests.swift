@@ -18,9 +18,12 @@ final class LocalExtensionInstallerTests: XCTestCase {
         extensionsDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: extensionsDir, withIntermediateDirectories: true)
+        let installDirectory: URL = extensionsDir
+        await MainActor.run { LocalExtensionInstaller.shared.targetDirectory = installDirectory }
     }
 
     override func tearDown() {
+        MainActor.assumeIsolated { LocalExtensionInstaller.shared.targetDirectory = Constants.extensionsDirectory }
         try? FileManager.default.removeItem(at: tempDir)
         try? FileManager.default.removeItem(at: extensionsDir)
         super.tearDown()
@@ -92,7 +95,7 @@ final class LocalExtensionInstallerTests: XCTestCase {
         XCTAssertEqual(promptCount, 1)
 
         // Verify it was not installed into extensionsDir
-        let installedPkg = Constants.extensionsDirectory.appendingPathComponent("TestCancel.openclipext")
+        let installedPkg = extensionsDir.appendingPathComponent("TestCancel.openclipext")
         XCTAssertFalse(FileManager.default.fileExists(atPath: installedPkg.path))
     }
 
@@ -152,9 +155,6 @@ final class LocalExtensionInstallerTests: XCTestCase {
         // Verify the extension was registered as trusted
         let trust = settings.get(.extensionTrust)
         XCTAssertEqual(trust["com.test.success"], "trusted")
-
-        // Cleanup
-        let installedPkg = Constants.extensionsDirectory.appendingPathComponent("TestSuccess.openclipext")
-        try? FileManager.default.removeItem(at: installedPkg)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: extensionsDir.appendingPathComponent("TestSuccess.openclipext").path))
     }
 }
