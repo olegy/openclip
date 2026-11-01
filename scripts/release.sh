@@ -97,6 +97,7 @@ echo "Building OpenClip (Release, universal)..."
 LOG="$(mktemp "${TMPDIR:-/tmp}/openclip-release.XXXXXX")"
 if ! xcodebuild -project OpenClip.xcodeproj -scheme OpenClip -configuration Release \
     -destination 'generic/platform=macOS' ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO \
+    DEPLOYMENT_POSTPROCESSING=YES STRIP_INSTALLED_PRODUCT=YES CLANG_ENABLE_CODE_COVERAGE=NO \
     -derivedDataPath "$DERIVED_DATA" build >"$LOG" 2>&1; then
     grep 'error:' "$LOG" | sort -u || true
     fail "build failed; full output: $LOG"

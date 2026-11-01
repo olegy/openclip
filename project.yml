@@ -74,9 +74,9 @@ targets:
         # extension minOpenClipVersion checks still compare against the upstream triplet.
         # CFBundleVersion is what Sparkle compares: the upstream build plus the Lite revision
         # (23.5, 23.6, … then 24.1 on the next upstream base), so it always grows.
-        OPENCLIP_UPSTREAM_BUILD: "23"
-        OPENCLIP_LITE_REVISION: "5"
-        MARKETING_VERSION: "1.8.2-lite.$(OPENCLIP_LITE_REVISION)"
+        OPENCLIP_UPSTREAM_BUILD: "26"
+        OPENCLIP_LITE_REVISION: "1"
+        MARKETING_VERSION: "1.9.2-lite.$(OPENCLIP_LITE_REVISION)"
         CURRENT_PROJECT_VERSION: "$(OPENCLIP_UPSTREAM_BUILD).$(OPENCLIP_LITE_REVISION)"
         INFOPLIST_KEY_CFBundleShortVersionString: $(MARKETING_VERSION)
         INFOPLIST_KEY_CFBundleVersion: $(CURRENT_PROJECT_VERSION)

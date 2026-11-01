@@ -4,6 +4,22 @@ What changes in each OpenClip Lite release. `scripts/release.sh` publishes the s
 version being released as the GitHub release notes and as the notes in the update window, and
 refuses to release a version without one. Newest first; one `## <version>` heading per release.
 
+## 1.9.2-lite.1
+
+Based on OpenClip 1.9.2; only the fixes below were ported from 1.8.2 to 1.9.2.
+
+- Capture Text keeps the app you captured from in focus, so full-screen windows and Safari
+  Picture in Picture stay put. Recognized text keeps Vision's line order across columns, and
+  failures name their cause.
+- Search and URL actions open in the source browser only for http(s) links; custom schemes such as
+  `goodlinks://` no longer trigger the browser's "allow this website to open…" prompt.
+- Brave Origin is recognized as a browser, and Firefox private-window searches open in the private
+  window.
+- The AI provider you saved is no longer overwritten when the app launches.
+- Uninstalling an extension group also clears its sub-actions' saved options.
+- Extensions are reloaded from filesystem events instead of polling the folder while idle.
+- Smaller app and disk image.
+
 ## 1.8.2-lite.5
 
 First release of OpenClip Lite, based on OpenClip 1.8.2.
