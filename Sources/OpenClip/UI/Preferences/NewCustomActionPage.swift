@@ -15,7 +15,6 @@ public struct NewCustomActionPage: View {
     @State private var customTitle: String = ""
     @State private var iconSymbol: String = "plus"
     private let initialIconSymbol: String = "plus"
-    @State private var displayMode: Int = 0 // 0 = Show Icon, 1 = Show Text
 
     // Execution Logic State
     private enum ActionKind: Hashable {
@@ -63,11 +62,9 @@ public struct NewCustomActionPage: View {
                 InsetGroupCard {
                     ActionAppearanceFields(
                         title: $customTitle,
-                        displayTextFallback: String(localized: "Custom Action"),
                         iconSymbol: $iconSymbol,
                         initialIconSymbol: initialIconSymbol,
-                        baseIcon: nil,
-                        displayMode: $displayMode
+                        baseIcon: nil
                     )
                 }
 
@@ -234,15 +231,6 @@ public struct NewCustomActionPage: View {
         )
 
         ActionCoordinator.shared.saveCustomAction(newAction)
-
-        if displayMode == 1 {
-            ActionCustomizationManager.shared.setOverride(
-                for: id,
-                title: nil,
-                symbol: nil,
-                text: trimmedTitle
-            )
-        }
 
         router.pop()
     }

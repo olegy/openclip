@@ -4,7 +4,6 @@
 // The Settings window: a modern Liquid Glass window layout:
 // - Near-black window background with native traffic lights top-left over the sidebar.
 // - Fixed-width sidebar sitting directly on the window background (no card/border/shadow).
-// - Capsule search field below traffic lights.
 // - Colored rounded-square icon tiles for all pages.
 // - Subtle translucent row selection highlight (not accent color).
 // - Inset rounded detail card with back/forward glass capsule, page title, and trailing pill actions.
@@ -18,13 +17,10 @@ import KeyboardShortcuts
 /// other parts of the app post). Maps onto the router's sidebar pages.
 public enum PreferenceTab: String, CaseIterable, Hashable, Sendable {
     case general = "General"
-    case customize = "Customize"
-    case appearance = "Appearance"
     case actions = "Actions"
     case shortcuts = "Shortcuts"
     case ai = "AI"
     case store = "Store"
-    case appRules = "App Rules"
     case about = "About"
 
     public var localizedTitle: LocalizedStringKey {
@@ -40,11 +36,9 @@ public enum PreferenceTab: String, CaseIterable, Hashable, Sendable {
     public var page: SettingsPage {
         switch self {
         case .general: return .general
-        case .customize, .appearance: return .appearance
-        case .actions, .shortcuts: return .customize
+        case .actions, .shortcuts: return .palette
         case .ai: return .ai
         case .store: return .store
-        case .appRules: return .appRules
         case .about: return .about
         }
     }
@@ -52,16 +46,10 @@ public enum PreferenceTab: String, CaseIterable, Hashable, Sendable {
 
 @MainActor
 public struct PreferencesView: View {
-    /// The Actions list measure.
-    private static let customizeListMaxWidth: CGFloat = SettingsLayout.contentMaxWidth
-
     @Setting(SettingKey.disabledActionIDs) private var disabledActionIDs
     @Setting(SettingKey.disabledPackages) private var disabledPackages
-    /// The Customize list's selection, kept here so the toolbar's New Group can seed a group with it.
-    @State private var selectedRowIDs: Set<String> = []
-    /// The Customize list's search text.
-    @State private var customizeQuery = ""
-    @State private var sidebarQuery = ""
+    /// The Palette page's search text.
+    @State private var paletteQuery = ""
     /// The folder, manifest and README of the extension whose page is on screen.
     @State private var packageDetails: ExtensionPackageDetails?
     /// Bumped when extensions change.
@@ -143,13 +131,7 @@ public struct PreferencesView: View {
         .onReceive(aiManager.objectWillChange.receive(on: RunLoop.main)) { _ in syncToolbar() }
         .onReceive(toolbarModel.actions) { action in
             switch action {
-            case .newGroup:
-                router.push(.newGroup(
-                    memberIDs: CustomizePage.groupCandidates(selectedRowIDs: selectedRowIDs, coordinator: coordinator)
-                ))
             case .addCustomAction: router.push(.newCustomAction())
-            case .openCustomActions: router.select(.customActions)
-            case .addApplication: router.push(.addApplication)
             case .addAIAction: router.push(.aiNewPreset)
             case .installExtensionFile: presentInstallExtensionPanel()
             case .refreshStore: Task { await storeViewModel.refreshCatalog() }
@@ -164,8 +146,8 @@ public struct PreferencesView: View {
                 guard storeViewModel.searchQuery != query else { return }
                 storeViewModel.searchQuery = query
                 storeViewModel.queryDidChange()
-            case .customize, .shortcuts:
-                if customizeQuery != query { customizeQuery = query }
+            case .palette:
+                if paletteQuery != query { paletteQuery = query }
             default:
                 break
             }
@@ -177,8 +159,8 @@ public struct PreferencesView: View {
             }
             storeViewModel.queryDidChange()
         }
-        .onChange(of: customizeQuery) { _, query in
-            guard toolbarModel.page == .customize || toolbarModel.page == .shortcuts else { return }
+        .onChange(of: paletteQuery) { _, query in
+            guard toolbarModel.page == .palette else { return }
             toolbarModel.searchQuery = query
         }
         .onChange(of: storeViewModel.selectedSort) { _, sort in
@@ -221,14 +203,14 @@ public struct PreferencesView: View {
     private func searchQuery(for page: SettingsPage) -> String {
         switch page {
         case .store: return storeViewModel.searchQuery
-        case .customize, .shortcuts: return customizeQuery
+        case .palette: return paletteQuery
         default: return ""
         }
     }
 
     private func subjectAction(of page: SettingsPage) -> (any Action)? {
         switch page {
-        case .action(let id), .builtinAction(let id):
+        case .action(let id):
             return coordinator.actions.first(where: { $0.id == id })
         default:
             return nil
@@ -348,7 +330,7 @@ public struct PreferencesView: View {
             do {
                 try await ExtensionManager.shared.uninstallExtension(actionID: info.uninstallActionID)
                 NotificationCenter.default.post(name: .openClipExtensionsDidChange, object: nil)
-                router.select(.customize)
+                router.select(.extensions)
             } catch {
                 Log.extensions.error("Failed to uninstall extension '\(packageID, privacy: .public)': \(error.localizedDescription)")
                 router.notifyError(
@@ -377,7 +359,7 @@ public struct PreferencesView: View {
         switch page {
         case .extensionPackage(let id):
             return InstalledExtensionInfo.info(for: id, in: coordinator.actions)?.name ?? id
-        case .action(let id), .builtinAction(let id):
+        case .action(let id):
             guard let action = coordinator.actions.first(where: { $0.id == id }) else {
                 return String(localized: "Configure Action")
             }
@@ -395,68 +377,13 @@ public struct PreferencesView: View {
     // MARK: - Sidebar
 
     private var systemRows: [SettingsSidebarRow] {
-        SettingsPage.systemPages.map { SettingsSidebarRow(systemPage: $0) }
+        SettingsPage.systemPages.map { SettingsSidebarRow(page: $0) }
     }
 
-    private var secondGroupRows: [SettingsSidebarRow] {
-        var rows: [SettingsSidebarRow] = [
-            SettingsSidebarRow(
-                page: .ai,
-                title: SettingsPage.ai.staticTitle ?? "AI",
-                keywords: SettingsPage.ai.searchKeywords,
-                tile: .bare(.symbol(SettingsPage.ai.systemImage)),
-                isDisabled: !aiManager.isAIEnabled
-            )
-        ]
-
-        for action in coordinator.actions where ActionIdentity.isBuiltin(action)
-            && !action.chrome.launchesAI
-            && action.chrome.rowStyle != .actionGroup {
-            let presentation = customizationManager.presented(action, surface: .table)
-            let isActionDisabled = disabledActionIDs.contains(action.id)
-            rows.append(SettingsSidebarRow(
-                page: .builtinAction(id: action.id),
-                title: presentation.title,
-                keywords: action.keywords + [action.id],
-                tile: .bare(SettingsHeroHeader.glyph(for: action, presented: presentation)),
-                isDisabled: isActionDisabled
-            ))
+    private var actionRows: [SettingsSidebarRow] {
+        SettingsPage.actionPages.map { page in
+            SettingsSidebarRow(page: page, isDisabled: page == .ai && !aiManager.isAIEnabled)
         }
-
-        for info in InstalledExtensionInfo.all(from: coordinator.actions) {
-            var keywords = info.commands.map { customizationManager.presented($0, surface: .table).title }
-            keywords.append(contentsOf: info.commands.flatMap(\.keywords))
-            keywords.append(info.packageID)
-            let isPkgDisabled = disabledPackages.contains(info.packageID)
-                || info.gatedReason != nil
-                || (!info.commands.isEmpty && info.commands.allSatisfy { disabledActionIDs.contains($0.id) })
-            rows.append(SettingsSidebarRow(
-                page: .extensionPackage(id: info.packageID),
-                title: info.name,
-                keywords: keywords,
-                tile: .bare(Self.plainGlyph(info.icon)),
-                isDisabled: isPkgDisabled
-            ))
-        }
-
-        let customTitles = coordinator.actions
-            .filter { SettingsDestination.isCustomAction($0) }
-            .map { customizationManager.presented($0, surface: .table).title }
-        rows.append(SettingsSidebarRow(
-            page: .customActions,
-            title: SettingsPage.customActions.staticTitle ?? "",
-            keywords: SettingsPage.customActions.searchKeywords + customTitles,
-            tile: .bare(.symbol(SettingsPage.customActions.systemImage))
-        ))
-
-        return SettingsSidebarOrder.sorted(rows)
-    }
-
-    private static func plainGlyph(_ icon: ActionIcon) -> ActionIcon {
-        if case .text(let text) = icon, text.count > 2 {
-            return .symbol("puzzlepiece.extension")
-        }
-        return icon
     }
 
     private var sidebarSelection: Binding<SettingsPage?> {
@@ -471,9 +398,8 @@ public struct PreferencesView: View {
     private var sidebar: some View {
         SettingsSidebar(
             selection: sidebarSelection,
-            query: $sidebarQuery,
             systemRows: systemRows,
-            extensionRows: secondGroupRows
+            actionRows: actionRows
         )
         .id(systemColorsToken)
     }
@@ -636,6 +562,10 @@ public struct PreferencesView: View {
                 }
             }
 
+            if router.currentPage == .palette {
+                paletteSearchField
+            }
+
             if router.currentPage == .store {
                 storeSearchField
 
@@ -708,6 +638,40 @@ public struct PreferencesView: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    /// The Palette page's filter: always open, since the list is what the page is for.
+    private var paletteSearchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(SettingsDesignTokens.sidebarSearchPlaceholder)
+                .padding(.leading, 8)
+
+            TextField(String(localized: "Search actions..."), text: $paletteQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(SettingsDesignTokens.primaryText)
+                .onKeyPress(.escape) {
+                    guard !paletteQuery.isEmpty else { return .ignored }
+                    paletteQuery = ""
+                    return .handled
+                }
+
+            if !paletteQuery.isEmpty {
+                Button {
+                    paletteQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(SettingsDesignTokens.sidebarSearchPlaceholder)
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 6)
+            }
+        }
+        .frame(width: 200, height: 28)
+        .settingsGlassCapsule(interactive: false)
     }
 
     @ViewBuilder
@@ -835,21 +799,13 @@ public struct PreferencesView: View {
         case .general:
             GeneralTab()
                 .settingsPaneWidth()
-        case .appearance:
-            AppearanceTab()
-                .settingsPaneWidth()
-        case .customize, .shortcuts:
-            CustomizePage(
-                selectedRowIDs: $selectedRowIDs,
+        case .palette:
+            PalettePage(
                 disabledActionIDs: $disabledActionIDs,
                 disabledPackages: $disabledPackages,
-                query: $customizeQuery
+                query: $paletteQuery
             )
-            .frame(maxWidth: Self.customizeListMaxWidth)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .appRules:
-            AppRulesTab()
-                .settingsPaneWidth()
+            .settingsPaneWidth()
         case .store:
             ExtensionStoreView(viewModel: storeViewModel)
                 .settingsPaneWidth(SettingsLayout.storeMaxWidth)
@@ -866,7 +822,6 @@ public struct PreferencesView: View {
                let singleAction = info.commands.first {
                 ActionEditorPage(
                     action: singleAction,
-                    isSidebarPage: true,
                     disabledActionIDs: $disabledActionIDs,
                     disabledPackages: $disabledPackages
                 )
@@ -879,17 +834,18 @@ public struct PreferencesView: View {
                 )
                 .settingsPaneWidth()
             }
-        case .builtinAction(let id):
-            if let action = coordinator.actions.first(where: { $0.id == id }) {
-                ActionEditorPage(
-                    action: action,
-                    isSidebarPage: true,
-                    disabledActionIDs: $disabledActionIDs,
-                    disabledPackages: $disabledPackages
-                )
-            } else {
-                Color.clear.onAppear { router.select(.customize) }
-            }
+        case .builtinActions:
+            BuiltinActionsPage(
+                disabledActionIDs: $disabledActionIDs,
+                disabledPackages: $disabledPackages
+            )
+            .settingsPaneWidth()
+        case .extensions:
+            ExtensionsPage(
+                disabledActionIDs: $disabledActionIDs,
+                disabledPackages: $disabledPackages
+            )
+            .settingsPaneWidth()
         case .customActions:
             CustomActionsPage(
                 disabledActionIDs: $disabledActionIDs,
@@ -900,8 +856,6 @@ public struct PreferencesView: View {
             actionEditor(for: id)
         case .newCustomAction(let kind):
             NewCustomActionPage(initialKind: kind)
-        case .newGroup(let memberIDs):
-            NewGroupPage(memberActionIDs: memberIDs)
         case .iconPicker:
             IconPickerPage()
         case .aiPreset(let id):
@@ -916,23 +870,17 @@ public struct PreferencesView: View {
             }
         case .aiNewPreset:
             AINewPresetPage()
-        case .addApplication:
-            AddApplicationPage()
         }
     }
 
     @ViewBuilder
     private func actionEditor(for id: String) -> some View {
         if let action = coordinator.actions.first(where: { $0.id == id }) {
-            if action.chrome.rowStyle == .actionGroup {
-                GroupEditorPage(groupID: action.id)
-            } else {
-                ActionEditorPage(
-                    action: action,
-                    disabledActionIDs: $disabledActionIDs,
-                    disabledPackages: $disabledPackages
-                )
-            }
+            ActionEditorPage(
+                action: action,
+                disabledActionIDs: $disabledActionIDs,
+                disabledPackages: $disabledPackages
+            )
         } else {
             Color.clear.onAppear { router.pop() }
         }

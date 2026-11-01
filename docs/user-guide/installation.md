@@ -1,69 +1,64 @@
 # Installation & Onboarding Guide
 
-Welcome to OpenClip! This guide will walk you through installing OpenClip on macOS, granting required permissions, and configuring your initial setup.
+OpenClip Lite has no published releases or Homebrew cask: you build it from source. This guide covers building, granting permissions, and the first-launch onboarding.
 
 ---
 
 ## System Requirements
 
 - **Operating System**: macOS 14.0 (Sonoma) or later.
-- **Architecture**: Universal binary (Apple Silicon M1/M2/M3/M4 & Intel processors).
-- **Permissions**: Accessibility permission is required for global text selection detection.
+- **Build tools**: Xcode 16+ and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
+- **Permissions**: Accessibility, to read the selected text when you press the palette shortcut. Screen Recording only if you use Capture Text.
 
 The interface follows the macOS system language. English, Simplified Chinese, Traditional Chinese, French, and Japanese are bundled.
 
 ---
 
-## Installation Steps
-
-1. **Download OpenClip**: Download the latest release `.dmg` or `.zip` file from the official releases page.
-2. **Move to Applications**: Drag `OpenClip.app` into your `/Applications` folder.
-3. **Launch OpenClip**: Open `OpenClip.app` from Finder or Spotlight.
-
-Releases are signed with an Apple Developer ID certificate and notarized by Apple, so OpenClip
-opens normally. There is no need to right-click to open it, and no need to strip a quarantine
-attribute with `xattr`. If macOS says the app "cannot be opened because the developer cannot be
-verified", the download is not a release build — check where it came from.
-
-To confirm what you have before launching it:
+## Building
 
 ```bash
-spctl -a -vv -t exec /Applications/OpenClip.app
-# accepted
-# source=Notarized Developer ID
-
-xcrun stapler validate /Applications/OpenClip.app
-# The validate action worked!
+git clone https://github.com/olegy/openclip.git
+cd openclip
+./scripts/package_app.sh   # Release build -> build/OpenClip.zip + build/OpenClip.dmg
 ```
+
+Open `build/OpenClip.dmg` and drag `OpenClip.app` into `/Applications`. Or run
+`./scripts/install.sh`, which builds the Release app, replaces `/Applications/OpenClip.app` and
+launches it. Settings and `~/.openclip` are kept: the bundle ID is the same.
+
+Builds are signed ad-hoc by default, which needs no Apple Developer account. See
+[Code Signing, Hardened Runtime & Notarization](../developer-guide/signing-and-notarization.md)
+for signing with a local certificate (keeps the Accessibility grant across rebuilds) or a
+Developer ID.
 
 ---
 
 ## Granting Accessibility Permissions
 
-OpenClip relies on macOS Accessibility APIs (`AXUIElement`) to detect text selection events and extract selected text directly without polluting your clipboard.
+OpenClip uses the macOS Accessibility APIs (`AXUIElement`) to read the selected text when you press the palette shortcut.
 
 ```
 System Settings ---> Privacy & Security ---> Accessibility ---> Enable OpenClip
 ```
 
-1. On first launch, OpenClip will prompt you to grant Accessibility permissions.
+1. On first launch, OpenClip prompts you to grant Accessibility permission.
 2. Click **Open System Settings**.
 3. Navigate to **Privacy & Security > Accessibility**.
 4. Toggle the switch next to **OpenClip** to **On**.
-5. Authenticate with your Mac password or Touch ID.
+
+Both permissions can also be granted later from **Preferences → General**.
 
 > [!NOTE]
-> OpenClip reads selected text strictly in real-time when mouse drag or selection events occur. No keystrokes or selection histories are logged or stored locally.
+> OpenClip reads the selection only when you press a shortcut. No keystrokes or selection histories are logged or stored.
 
 ---
 
 ## First-Launch Onboarding Workflow
 
-When launched for the first time, OpenClip presents a 4-step onboarding wizard:
+When launched for the first time, OpenClip presents a 3-step onboarding wizard:
 
-1. **Welcome**: Concept overview of turning selected text into instant contextual actions.
-2. **Access**: Accessibility permission check with 100% on-device privacy guarantee.
-3. **Extensions**: Recommended essential extensions (translations, word count, speech) with one-click installation.
-4. **Try It**: Interactive live playground sandbox to test text selection and see the real action bar in action.
+1. **Welcome**: How the command palette works — select text, press the shortcut, pick an action; with nothing selected, the palette works on the clipboard.
+2. **Access**: Accessibility permission check.
+3. **Extensions**: Recommended extensions (translations, word count, speech) with one-click installation.
 
-Onboarding can be skipped at any step; finishing it starts text-selection monitoring. You can also trigger the popup anytime with the global shortcut (**⌥⌘C** by default), configure AI providers anytime in **Preferences → AI**, and customize the popup bar's theme in **Preferences → Appearance**.
+Onboarding can be skipped at any step. Open the palette anytime with the global shortcut (**⌥⌘C** by default), configure AI providers in **Preferences → AI**, and change the theme in the **Appearance** card of **Preferences → General**.

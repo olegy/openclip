@@ -2,7 +2,7 @@
 // OpenClip
 //
 // The one-line floating toast rendered by ToastPanelController: `[spinner | icon] message`,
-// capped to a single line and themed through PopupThemeModel so it matches the bar.
+// capped to a single line and themed through PopupThemeModel so it matches the palette.
 import SwiftUI
 import Core
 
@@ -16,7 +16,6 @@ struct ToastView: View {
 
     @State private var isHovered = false
 
-    @Setting(SettingKey.popupTheme) private var selectedTheme
     @Setting(SettingKey.popupThemeColor) private var themeColor
     @Setting(SettingKey.popupScale) private var popupScale
     @Environment(\.colorScheme) private var colorScheme
@@ -28,24 +27,18 @@ struct ToastView: View {
         self.onCancel = onCancel
         self.reservedWidth = reservedWidth
         self.onHover = onHover
-        _selectedTheme = Setting(SettingKey.popupTheme, store: settingsStore)
         _themeColor = Setting(SettingKey.popupThemeColor, store: settingsStore)
         _popupScale = Setting(SettingKey.popupScale, store: settingsStore)
     }
 
     /// Visual multiplier derived from the user's Popup Scale level (1...5) so the toast keeps pace
-    /// with the popup bar it attaches to — same scale factor `PopupView` applies to the bar.
+    /// with the Notification Size setting.
     private var scale: CGFloat { PopupMetrics.scaleMultiplier(for: popupScale) }
 
     /// Corner radius for the toast bubble, scaled with the popup scale.
     private var cornerRadius: CGFloat { PopupMetrics.toastCornerRadius * scale }
 
-    private var isGlass: Bool {
-        PopupThemeModel.category(fromStored: selectedTheme) == .glass
-    }
-
     private var effectiveTheme: String {
-        if isGlass { return "glass" }
         return PopupThemeModel.classicToken(appearance: themeColor, systemIsDark: colorScheme == .dark)
     }
 
@@ -112,64 +105,48 @@ struct ToastView: View {
                 .allowsHitTesting(false)
         }
 
-        Group {
-            if isGlass {
-                let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                content
-                    .background(
-                        LayeredGlassBackground(cornerRadius: cornerRadius, colorScheme: effectiveColorScheme)
-                    )
-                    .clipShape(shape)
-                    .overlay(
-                        LayeredGlassBorder(cornerRadius: cornerRadius, colorScheme: effectiveColorScheme)
-                    )
-                    .shadow(color: Color.black.opacity(effectiveColorScheme == .dark ? 0.25 : 0.15), radius: 4, x: 0, y: 1)
-            } else {
-                let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                content
-                    .background(
-                        PopupThemeModel.classicSurfaceBackground(for: effectiveColorScheme, in: shape)
-                    )
-                    .clipShape(shape)
-                    .overlay(
-                        shape.stroke(
-                            LinearGradient(
-                                colors: effectiveColorScheme == .dark
-                                    ? [Color.white.opacity(0.20), Color.white.opacity(0.08)]
-                                    : [Color.black.opacity(0.18), Color.black.opacity(0.08)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            ),
-                            lineWidth: 1.0
-                        )
-                    )
-                    .overlay(
-                        shape.inset(by: 0.5).stroke(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(effectiveColorScheme == .dark ? 0.32 : 0.65),
-                                    Color.white.opacity(0.0)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            ),
-                            lineWidth: 1.0
-                        )
-                        .allowsHitTesting(false)
-                    )
-                    .shadow(color: Color.black.opacity(effectiveColorScheme == .dark ? 0.28 : 0.12), radius: 4, x: 0, y: 1.5)
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background(
+                PopupThemeModel.classicSurfaceBackground(for: effectiveColorScheme, in: shape)
+            )
+            .clipShape(shape)
+            .overlay(
+                shape.stroke(
+                    LinearGradient(
+                        colors: effectiveColorScheme == .dark
+                            ? [Color.white.opacity(0.20), Color.white.opacity(0.08)]
+                            : [Color.black.opacity(0.18), Color.black.opacity(0.08)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1.0
+                )
+            )
+            .overlay(
+                shape.inset(by: 0.5).stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(effectiveColorScheme == .dark ? 0.32 : 0.65),
+                            Color.white.opacity(0.0)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 1.0
+                )
+                .allowsHitTesting(false)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .onHover { hovering in
+                isHovered = hovering
+                onHover?(hovering)
             }
-        }
-        .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .onHover { hovering in
-            isHovered = hovering
-            onHover?(hovering)
-        }
-        .onTapGesture {
-            guard isInteractive else { return }
-            onCancel?()
-        }
-        .environment(\.colorScheme, effectiveColorScheme)
+            .onTapGesture {
+                guard isInteractive else { return }
+                onCancel?()
+            }
+            .environment(\.colorScheme, effectiveColorScheme)
     }
 }
 

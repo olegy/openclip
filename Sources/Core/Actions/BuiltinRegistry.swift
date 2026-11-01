@@ -2,7 +2,7 @@
 // OpenClip
 //
 // Constructs and provides the catalog of core AppKit-free builtin actions available in OpenClip.
-// Instantiates default actions including text search, definitions, date calculations, and clipboard operations.
+// Instantiates default actions including text search, definitions, and date calculations.
 import Foundation
 
 /// Core (AppKit-free) builtin actions. AppDelegate appends platform-specific ones.
@@ -15,9 +15,6 @@ public enum BuiltinRegistry {
         DefineAction.migrateLegacyDisplayOptionIfNeeded(settingsStore: settingsStore)
         let actions: [any Action] = [
             SearchAction(settingsStore: settingsStore),
-            CopyAction(),
-            CutAction(),
-            PasteAction(),
             CalculateAction(),
             DefineAction(lookup: dictionaryLookup, settingsStore: settingsStore),
             CalendarAction(settingsStore: settingsStore)

@@ -36,14 +36,9 @@ final class ActionCustomizationTests: XCTestCase {
         let action = CustomizationMockAction()
         
         // Set custom title and custom symbol icon
-        manager.setOverride(for: "mock.test", title: "Custom Title", symbol: "heart.fill", text: nil)
+        manager.setOverride(for: "mock.test", title: "Custom Title", symbol: "heart.fill")
         XCTAssertEqual(action.displayTitle(using: manager), "Custom Title")
         XCTAssertEqual(action.displayIcon(using: manager), .symbol("heart.fill"))
-        
-        // Set custom text/emoji icon
-        manager.setOverride(for: "mock.test", title: "Custom Title", symbol: nil, text: "❤️")
-        XCTAssertEqual(action.displayTitle(using: manager), "Custom Title")
-        XCTAssertEqual(action.displayIcon(using: manager), .text("❤️"))
         
         // Reset override
         manager.resetOverride(for: "mock.test")
@@ -106,7 +101,7 @@ final class ActionCustomizationTests: XCTestCase {
         XCTAssertEqual(manager.tableIcon(for: urlAction), .url(webURL))
 
         // Custom override symbol takes precedence over all
-        manager.setOverride(for: "builtin.copy", title: nil, symbol: "sparkles", text: nil)
+        manager.setOverride(for: "builtin.copy", title: nil, symbol: "sparkles")
         XCTAssertEqual(manager.tableIcon(for: builtinTextAction), .symbol("sparkles"))
     }
 

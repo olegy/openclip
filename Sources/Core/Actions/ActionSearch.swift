@@ -8,9 +8,9 @@
 // then original order.
 import Foundation
 
-/// The popup's display mode. Search and content modes are UI states, never Actions in the registry.
+/// What the popup shows: the command palette or an action's result card. UI states, never Actions
+/// in the registry.
 public enum PopupMode: Sendable, Equatable {
-    case actions
     case search
     case content
 }
@@ -51,7 +51,7 @@ public enum ActionSearch {
     /// Returns `items` ranked for `query`. Match-kind tiers are hard: exact alias (4) beats
     /// title prefix (3), which beats title contains (2), which beats a fuzzy title subsequence
     /// (1), which beats keyword contains (0). Within a tier: tighter fuzzy alignments first,
-    /// then usage recency (most recent first), then original (bar) order as the final tie-break.
+    /// then usage recency (most recent first), then the action order as the final tie-break.
     public static func search(_ query: String, in items: [ActionSearchIndex]) -> [ActionSearchIndex] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return items }

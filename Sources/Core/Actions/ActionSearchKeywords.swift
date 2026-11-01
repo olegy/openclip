@@ -78,26 +78,6 @@ public enum ActionSearchKeywords {
             "calendrier", "événement", "rendez-vous", "agenda", "date",
             "カレンダー", "予定", "スケジュール", "イベント", "日程"
         ],
-        "builtin.copy": [
-            "copy", "clipboard", "duplicate",
-            "复制", "拷贝", "剪贴板",
-            "複製", "拷貝", "剪貼板",
-            "copier", "presse-papier", "dupliquer",
-            "コピー", "クリップボード", "複製"
-        ],
-        "builtin.cut": [
-            "cut", "clipboard", "snip",
-            "剪切", "剪下",
-            "couper",
-            "カット", "切り取り"
-        ],
-        "builtin.paste": [
-            "paste", "clipboard", "insert",
-            "粘贴", "贴上",
-            "貼上",
-            "coller", "insérer",
-            "ペースト", "貼り付け"
-        ],
         "builtin.reveal_in_finder": [
             "finder", "reveal", "folder", "show", "directory", "file", "path", "open folder",
             "访达", "文件夹", "打开目录", "显示文件", "路径", "定位",
@@ -111,13 +91,6 @@ public enum ActionSearchKeywords {
             "打開", "網址", "鏈接", "瀏覽器", "跳轉",
             "ouvrir", "lien", "navigateur", "adresse",
             "開く", "ブラウザ", "リンク", "URL", "ウェブ"
-        ],
-        "builtin.completion": [
-            "completion", "suggest", "autocomplete", "word",
-            "补全", "建议", "自动补全",
-            "補全", "建議", "自動補全",
-            "complétion", "saisie automatique", "suggestion",
-            "補完", "サジェスト", "入力補完"
         ],
         "builtin.aitools": [
             "ai", "intelligence", "assistant", "bot", "smart",

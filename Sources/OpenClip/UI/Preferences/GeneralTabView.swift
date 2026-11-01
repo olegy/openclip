@@ -1,8 +1,8 @@
 // GeneralTabView.swift
 // OpenClip
 //
-// The General preferences tab: app enable and menu bar toggles, trigger hotkey,
-// start-at-login, and system-permission status.
+// The General preferences tab: hotkeys, appearance, the file save location, menu bar and
+// start-at-login toggles, and system-permission status.
 //
 // Styled with inset SettingsCards (outside headers, rounded cards, inset hairline dividers).
 
@@ -12,57 +12,20 @@ import KeyboardShortcuts
 
 @MainActor
 struct GeneralTab: View {
-    /// Backed by the settings store — the single owner of `isAppEnabled`.
-    @State private var isAppEnabled: Bool
     @State private var showMenuBarIcon: Bool
-    @State private var isMouseHoldEnabled: Bool
-    @Setting(SettingKey.captureTextAutoCopy) private var captureTextAutoCopy
     @State private var fileSaveLocation: String
     @ObservedObject private var launchManager = LaunchAtLoginManager.shared
     @ObservedObject private var permissionManager = PermissionManager.shared
 
     /// Initializes preference state from the shared settings store.
     init() {
-        _isAppEnabled = State(initialValue: DefaultSettingsStore.shared.get(.isAppEnabled))
         _showMenuBarIcon = State(initialValue: DefaultSettingsStore.shared.get(.showMenuBarIcon))
-        _isMouseHoldEnabled = State(initialValue: DefaultSettingsStore.shared.get(.isMouseHoldEnabled))
         _fileSaveLocation = State(initialValue: DefaultSettingsStore.shared.get(.fileSaveLocation))
     }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                // Everything that decides how the popup and palette are summoned
-                SettingsCard("Selection & Mouse") {
-                    SettingsToggleRow(
-                        title: "Appear Automatically",
-                        subtitle: "Show the popup as soon as text is selected.",
-                        systemImage: "cursorarrow",
-                        plainIcon: true,
-                        isOn: $isAppEnabled
-                    )
-                    .onChange(of: isAppEnabled) { _, newValue in
-                        DefaultSettingsStore.shared.set(.isAppEnabled, value: newValue)
-                        NotificationCenter.default.post(name: Notification.Name("OpenClipEnabledStateChanged"), object: newValue)
-                    }
-
-                    SettingsDivider()
-
-                    SettingsToggleRow(
-                        title: "Hold Mouse to Trigger",
-                        subtitle: "Press and hold without moving the mouse to summon the popup.",
-                        systemImage: "hand.tap",
-                        plainIcon: true,
-                        isOn: $isMouseHoldEnabled
-                    )
-                    .onChange(of: isMouseHoldEnabled) { _, newValue in
-                        DefaultSettingsStore.shared.set(.isMouseHoldEnabled, value: newValue)
-                    }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: Notification.Name("OpenClipEnabledStateChanged"))) { notification in
-                    isAppEnabled = (notification.object as? Bool) ?? DefaultSettingsStore.shared.get(.isAppEnabled)
-                }
-
                 SettingsCard("Shortcuts") {
                     SettingsRow(
                         title: "Command Palette",
@@ -75,27 +38,17 @@ struct GeneralTab: View {
 
                     SettingsDivider()
 
-                    VStack(alignment: .leading, spacing: 0) {
-                        SettingsRow(
-                            title: "Capture Text",
-                            subtitle: "Select a screen region to extract text.",
-                            systemImage: "viewfinder",
-                            plainIcon: true
-                        ) {
-                            Shortcut(for: .captureText)
-                        }
-
-                        Toggle("Copy to Clipboard Automatically", isOn: $captureTextAutoCopy)
-                            .toggleStyle(.checkbox)
-                            .controlSize(.small)
-                            .font(.system(size: 12))
-                            .foregroundStyle(SettingsDesignTokens.secondaryText)
-                            .help(String(localized: "The action popup still opens after capture."))
-                            .padding(.leading, SettingsDesignTokens.dividerInsetLeading + 4)
-                            .padding(.trailing, SettingsDesignTokens.sectionCardPaddingH)
-                            .padding(.bottom, SettingsDesignTokens.sectionCardPaddingV)
+                    SettingsRow(
+                        title: "Capture Text",
+                        subtitle: "Select a screen region and copy its text.",
+                        systemImage: "viewfinder",
+                        plainIcon: true
+                    ) {
+                        Shortcut(for: .captureText)
                     }
                 }
+
+                AppearanceSettingsCard()
 
                 SettingsCard("Files") {
                     SettingsRow(
@@ -181,33 +134,24 @@ struct GeneralTab: View {
                 }
 
                 SettingsCard("Permissions") {
-                    SettingsRow(
+                    permissionRow(
                         title: "Accessibility Access",
                         subtitle: "Required to read the selected text.",
                         systemImage: "lock.shield",
-                        plainIcon: true
+                        isGranted: permissionManager.isAccessibilityGranted
                     ) {
-                        HStack(spacing: 8) {
-                            Image(systemName: permissionManager.isAccessibilityGranted
-                                  ? "checkmark.circle.fill"
-                                  : "exclamationmark.triangle.fill")
-                                .font(.callout)
-                                .foregroundStyle(permissionManager.isAccessibilityGranted ? Color.green : Color.orange)
-                                .accessibilityLabel(permissionManager.isAccessibilityGranted
-                                                    ? String(localized: "Granted")
-                                                    : String(localized: "Access Required"))
+                        permissionManager.requestAccessibilityPermission()
+                    }
 
-                            Button(String(localized: "Open Settings")) {
-                                permissionManager.requestAccessibilityPermission()
-                            }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundStyle(SettingsDesignTokens.primaryText)
-                            .padding(.horizontal, 10)
-                            .frame(height: 24)
-                            .settingsGlassCapsule()
-                            .contentShape(Capsule())
-                        }
+                    SettingsDivider()
+
+                    permissionRow(
+                        title: "Screen Recording",
+                        subtitle: "Required by Capture Text.",
+                        systemImage: "rectangle.dashed.badge.record",
+                        isGranted: permissionManager.isScreenRecordingGranted
+                    ) {
+                        permissionManager.requestScreenRecordingPermission()
                     }
                 }
             }
@@ -220,6 +164,39 @@ struct GeneralTab: View {
             launchManager.syncStatus()
         }
         .onDisappear { permissionManager.stopMonitoring() }
+    }
+
+    private func permissionRow(
+        title: LocalizedStringKey,
+        subtitle: LocalizedStringKey,
+        systemImage: String,
+        isGranted: Bool,
+        openSettings: @escaping () -> Void
+    ) -> some View {
+        SettingsRow(
+            title: title,
+            subtitle: subtitle,
+            systemImage: systemImage,
+            plainIcon: true
+        ) {
+            HStack(spacing: 8) {
+                Image(systemName: isGranted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(isGranted ? Color.green : Color.orange)
+                    .accessibilityLabel(isGranted
+                                        ? String(localized: "Granted")
+                                        : String(localized: "Access Required"))
+
+                Button(String(localized: "Open Settings"), action: openSettings)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(SettingsDesignTokens.primaryText)
+                    .padding(.horizontal, 10)
+                    .frame(height: 24)
+                    .settingsGlassCapsule()
+                    .contentShape(Capsule())
+            }
+        }
     }
 
     private var saveLocationSubtitleText: Text {

@@ -4,14 +4,12 @@ import XCTest
 final class ActionCoordinatorTests: XCTestCase {
     private var tempDir: URL!
     private var tempExtensionsDir: URL!
-    private var tempRulesURL: URL!
 
     override func setUp() async throws {
         try await super.setUp()
         await MainActor.run { TestIsolation.reset() }
         tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("ActionCoordinatorTests-\(UUID().uuidString)")
         tempExtensionsDir = tempDir.appendingPathComponent("extensions")
-        tempRulesURL = tempDir.appendingPathComponent("rules.json")
         try FileManager.default.createDirectory(at: tempExtensionsDir, withIntermediateDirectories: true)
     }
 
@@ -29,8 +27,7 @@ final class ActionCoordinatorTests: XCTestCase {
         let registry = ActionRegistry(settingsStore: settingsStore)
         let coordinator = ActionCoordinator(registry: registry, settingsStore: settingsStore)
         await coordinator.loadInitialState(
-            extensionsDirectory: tempExtensionsDir,
-            rulesURL: tempRulesURL
+            extensionsDirectory: tempExtensionsDir
         )
         
         let app = AppIdentity(bundleIdentifier: "com.apple.Safari", localizedName: "Safari")
@@ -43,7 +40,7 @@ final class ActionCoordinatorTests: XCTestCase {
         )
         let context = ActionContext(selection: selection, modifiers: [])
         
-        let resolved = coordinator.resolveActions(for: context)
+        let resolved = coordinator.searchCatalog(for: context)
         XCTAssertFalse(resolved.isEmpty, "ActionCoordinator should resolve active actions for context")
     }
     

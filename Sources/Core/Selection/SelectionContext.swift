@@ -6,18 +6,15 @@ import Foundation
 import CoreGraphics
 
 public enum SelectionSource: Sendable {
-    case selection, clipboard, ocr
+    case selection, clipboard
 }
 
 public struct SelectionContext: Sendable {
     /// Retrieval correlation ID, carried through presentation without retaining content in logs.
     public let traceID: UInt64?
-    /// Generation of observed selection/focus gestures; nil for untracked contexts.
-    public let selectionGeneration: UInt64?
     public let text: String
     public let sourceApp: AppIdentity
     public let cursorPosition: CGPoint
-    public let mouseDownLocation: CGPoint?
     public let selectionBounds: CGRect?
     public let timestamp: Date
     public let appPolicy: AppPolicyContext
@@ -39,7 +36,6 @@ public struct SelectionContext: Sendable {
         text: String,
         sourceApp: AppIdentity = AppIdentity(bundleIdentifier: "com.openclip.unknown", localizedName: "Unknown"),
         cursorPosition: CGPoint = .zero,
-        mouseDownLocation: CGPoint? = nil,
         selectionBounds: CGRect? = nil,
         timestamp: Date = Date(),
         appPolicy: AppPolicyContext = .default,
@@ -47,18 +43,15 @@ public struct SelectionContext: Sendable {
         html: String? = nil,
         rtf: String? = nil,
         flavors: [RichPasteboardFlavor] = [],
-        selectionGeneration: UInt64? = nil,
         source: SelectionSource? = nil,
         isEditable: Bool? = nil,
         pasteTargetAvailable: Bool? = nil,
         traceID: UInt64? = nil
     ) {
         self.traceID = traceID
-        self.selectionGeneration = selectionGeneration
         self.text = text
         self.sourceApp = sourceApp
         self.cursorPosition = cursorPosition
-        self.mouseDownLocation = mouseDownLocation
         self.selectionBounds = selectionBounds
         self.timestamp = timestamp
         self.appPolicy = appPolicy
@@ -76,7 +69,6 @@ public struct SelectionContext: Sendable {
             text: text,
             sourceApp: sourceApp,
             cursorPosition: cursorPosition,
-            mouseDownLocation: mouseDownLocation,
             selectionBounds: selectionBounds,
             timestamp: timestamp,
             appPolicy: appPolicy,
@@ -84,7 +76,6 @@ public struct SelectionContext: Sendable {
             html: html,
             rtf: rtf,
             flavors: flavors,
-            selectionGeneration: selectionGeneration,
             source: source,
             isEditable: isEditable,
             pasteTargetAvailable: pasteTargetAvailable,
@@ -97,7 +88,6 @@ public struct SelectionContext: Sendable {
             text: text,
             sourceApp: sourceApp,
             cursorPosition: cursorPosition,
-            mouseDownLocation: mouseDownLocation,
             selectionBounds: selectionBounds,
             timestamp: timestamp,
             appPolicy: appPolicy,
@@ -105,7 +95,6 @@ public struct SelectionContext: Sendable {
             html: html,
             rtf: rtf,
             flavors: flavors,
-            selectionGeneration: selectionGeneration,
             source: source,
             isEditable: self.isEditable ?? isEditable,
             pasteTargetAvailable: pasteTargetAvailable ?? self.pasteTargetAvailable,

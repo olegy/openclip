@@ -41,7 +41,7 @@ public struct PermissionRecoveryView: View {
 
                 Text(isUpdate
                      ? String(localized: "macOS requires re-enabling Accessibility to continue detecting text selections.")
-                     : String(localized: "OpenClip needs Accessibility access to detect selected text and display action bars."))
+                     : String(localized: "OpenClip needs Accessibility access to read the selected text."))
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)

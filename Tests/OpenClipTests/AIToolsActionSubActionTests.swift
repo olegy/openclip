@@ -27,16 +27,6 @@ final class AIToolsActionSubActionTests: XCTestCase {
         TestIsolation.reset()
     }
 
-    func testStandalonePresetsAreNotDuplicatedInAITools() {
-        let store = MemorySettingsStore()
-        let tools = AIToolsAction(settingsStore: store)
-        let presets = [FakeAIAction(id: "ai.preset.1"), FakeAIAction(id: "ai.preset.2")]
-        store.set(.standaloneAIActionIDs, value: ["ai.preset.1"])
-        XCTAssertEqual(tools.subActions(in: presets).map(\.id), ["ai.preset.2"])
-        store.set(.standaloneAIActionIDs, value: Set(presets.map(\.id)))
-        XCTAssertTrue(tools.subActions(in: presets).isEmpty, "An empty group must not resurrect presets via the fallback.")
-    }
-
     @MainActor
     func testAIToolsResolvesAIPresets() {
         let tools = AIToolsAction(settingsStore: MemorySettingsStore())
@@ -62,34 +52,10 @@ final class AIToolsActionSubActionTests: XCTestCase {
         ))
     }
 
-    func testMovingAllPresetsOutAndBackRestoresSubBarWithOtherPresetsStillStandalone() {
-        let store = MemorySettingsStore()
-        let registry = ActionRegistry(settingsStore: store)
-        let coordinator = ActionCoordinator(registry: registry, settingsStore: store)
-        let tools = AIToolsAction(settingsStore: store)
-        let presets = [FakeAIAction(id: "ai.preset.1"), FakeAIAction(id: "ai.preset.2")]
-        registry.register(builtIns: [tools] + presets)
-
-        func displayedIDs() -> [String] {
-            PopupView(actions: registry.availableActions(for: context), context: context, onResult: { _ in })
-                .displayActions.map(\.id)
-        }
-        XCTAssertEqual(displayedIDs(), [tools.id])
-        coordinator.setAIActionPlacement(actionIDs: presets.map(\.id), standalone: true)
-        XCTAssertEqual(Set(displayedIDs()), Set(presets.map(\.id)))
-        coordinator.setAIActionPlacement(actionIDs: [presets[0].id], standalone: false)
-        XCTAssertEqual(Set(displayedIDs()), [tools.id, presets[1].id])
-        XCTAssertEqual(tools.subActions(in: registry.availableActions(for: context)).map(\.id), [presets[0].id])
-        coordinator.setAIActionPlacement(actionIDs: [presets[1].id], standalone: false)
-        XCTAssertEqual(displayedIDs(), [tools.id])
-        XCTAssertEqual(tools.subActions(in: registry.availableActions(for: context)).map(\.id), presets.map(\.id))
-    }
-
-    func testHidingAIGroupDoesNotDisableStandalonePresetsOrAIService() {
+    func testHidingAIToolsHidesEveryPresetButKeepsTheAIService() {
         let store = MemorySettingsStore()
         let registry = ActionRegistry(settingsStore: store)
         let tools = AIToolsAction(settingsStore: store)
-        store.set(.standaloneAIActionIDs, value: ["ai.preset.2"])
         registry.register(builtIns: [tools, FakeAIAction(id: "ai.preset.1"), FakeAIAction(id: "ai.preset.2")])
         let toggle = ActionEnablement.binding(
             for: tools,
@@ -101,10 +67,9 @@ final class AIToolsActionSubActionTests: XCTestCase {
         XCTAssertFalse(toggle.wrappedValue)
         XCTAssertEqual(store.get(.disabledActionIDs), [tools.id])
         XCTAssertEqual(AIServiceManager.shared.isAIEnabled, globalAIEnabled)
-        XCTAssertEqual(registry.availableActions(for: context).map(\.id), ["ai.preset.2"])
-        XCTAssertEqual(registry.searchCatalog(for: context).map(\.id), ["ai.preset.2"])
+        XCTAssertTrue(registry.searchCatalog(for: context).isEmpty)
         toggle.wrappedValue = true
-        XCTAssertEqual(tools.subActions(in: registry.availableActions(for: context)).map(\.id), ["ai.preset.1"])
+        XCTAssertEqual(tools.subActions(in: registry.searchCatalog(for: context)).map(\.id), ["ai.preset.1", "ai.preset.2"])
     }
 
     func testGroupDisappearsWhenAllRemainingPresetsAreDisabled() {
@@ -112,8 +77,7 @@ final class AIToolsActionSubActionTests: XCTestCase {
         let registry = ActionRegistry(settingsStore: store)
         let tools = AIToolsAction(settingsStore: store)
         registry.register(builtIns: [tools, FakeAIAction(id: "ai.preset.1", enabled: false)])
-        let available = registry.availableActions(for: context)
+        let available = registry.searchCatalog(for: context)
         XCTAssertTrue(tools.subActions(in: available).isEmpty)
-        XCTAssertTrue(PopupView(actions: available, context: context, onResult: { _ in }).displayActions.isEmpty)
     }
 }

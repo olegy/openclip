@@ -7,16 +7,15 @@
 // and are cleared via swapTo/hide. An auto-dismissing toast pauses its timer while the pointer
 // rests on it (it accepts mouse events to track hover) and restarts the full duration on leave.
 //
-// Toasts appear near the pointer captured when they are shown. Placement prefers above the
-// pointer, avoids the popup/group bars, and stays fixed as the mouse moves. Loading completion
-// retains the same pointer position. Explicit overlay/above placement remains available.
+// A toast tied to the popup centers on the popup's frame (`.overlay`); one without a popup
+// appears near the pointer captured when it is shown, prefers above it, avoids the popup frame,
+// and stays fixed as the mouse moves. Loading completion retains the same position.
 import AppKit
 import SwiftUI
 import Core
 
 public enum ToastPlacement: Sendable, Equatable {
     case overlay
-    case above
     case nearCursor(CGPoint)
 }
 
@@ -25,7 +24,6 @@ public final class ToastPanelController {
     private(set) var presentationID: UUID?
     private let cursorLocation: @MainActor () -> CGPoint
     public private(set) var currentPlacement: ToastPlacement = .overlay
-    private var avoidanceRects: [CGRect] = []
     public private(set) var currentFeedback: StatusFeedback?
     public private(set) var isLoading = false
     private var _isShowing = false
@@ -80,13 +78,15 @@ public final class ToastPanelController {
         self.panel.contentView = container
     }
 
-    /// Shows feedback near the current cursor. A settled loading result keeps its original
-    /// position; fresh feedback captures a new position. The popup frame is an avoidance rect.
+    /// Shows feedback centered on the popup frame, or near the current cursor without one. A
+    /// settled loading result keeps its original position; fresh feedback captures a new one.
     public func show(_ feedback: StatusFeedback, anchorFrame: NSRect? = nil,
-                     placement: ToastPlacement? = nil, avoidanceRects: [CGRect] = [],
-                     onCancel: (() -> Void)? = nil) {
+                     placement: ToastPlacement? = nil, onCancel: (() -> Void)? = nil) {
         let finishesLoading = isShowing && isLoading && !feedback.isLoading && placement == nil
-        let resolvedPlacement = placement ?? (finishesLoading ? currentPlacement : .nearCursor(cursorLocation()))
+        // The palette opens Spotlight-style, away from the pointer, so a toast tied to the popup
+        // centers on its frame instead of chasing the pointer.
+        let defaultPlacement: ToastPlacement = anchorFrame != nil ? .overlay : .nearCursor(cursorLocation())
+        let resolvedPlacement = placement ?? (finishesLoading ? currentPlacement : defaultPlacement)
         dismissTask?.cancel()
         dismissTask = nil
         visibilityCheckTask?.cancel()
@@ -95,7 +95,6 @@ public final class ToastPanelController {
         presentationID = UUID()
         currentFeedback = feedback
         currentPlacement = resolvedPlacement
-        self.avoidanceRects = avoidanceRects
         isLoading = feedback.isLoading
         if let anchorFrame {
             _lastAnchorFrame = anchorFrame
@@ -133,14 +132,9 @@ public final class ToastPanelController {
             fit = hostingView.fittingSize
         }
 
-        // Every toast needs transparent space inside the window for its SwiftUI shadow,
-        // including cancellable loading pills. Interactivity must not shrink that space.
-        let inset = PopupMetrics.toastShadowInset
-        hostingView.frame = NSRect(x: inset, y: inset, width: fit.width, height: fit.height)
-        panel.contentView?.frame = NSRect(origin: .zero,
-                                          size: NSSize(width: fit.width + inset * 2,
-                                                       height: fit.height + inset * 2))
-        place(at: fit, inset: inset)
+        hostingView.frame = NSRect(origin: .zero, size: fit)
+        panel.contentView?.frame = NSRect(origin: .zero, size: fit)
+        place(at: fit)
         panel.ignoresMouseEvents = !(isInteractive || isDismissible)
         _isShowing = true
         if NSClassFromString("XCTestCase") == nil {
@@ -163,8 +157,7 @@ public final class ToastPanelController {
     /// `keepVisible`; loading and keep-visible statuses have no timer and are cleared via a later
     /// `swapTo`/`hide`.
     public func swapTo(_ feedback: StatusFeedback) {
-        show(feedback, anchorFrame: _lastAnchorFrame, placement: isShowing ? currentPlacement : nil,
-             avoidanceRects: avoidanceRects)
+        show(feedback, anchorFrame: _lastAnchorFrame, placement: isShowing ? currentPlacement : nil)
     }
 
     public func hide() {
@@ -176,7 +169,6 @@ public final class ToastPanelController {
         currentFeedback = nil
         presentationID = nil
         currentPlacement = .overlay
-        avoidanceRects = []
         isLoading = false
         _isShowing = false
         panel.ignoresMouseEvents = true
@@ -254,46 +246,35 @@ public final class ToastPanelController {
     }
 
     /// Positions the separate window using its stored cursor position, even without a popup.
-    private func place(at size: CGSize, inset: CGFloat) {
+    private func place(at size: CGSize) {
         let screen: NSScreen?
         if case .nearCursor(let cursor) = currentPlacement {
             screen = NSScreen.screens.first { $0.frame.contains(cursor) } ?? NSScreen.main
         } else if let anchor = _lastAnchorFrame {
             screen = NSScreen.screens.first { $0.frame.contains(anchor.origin) || $0.frame.intersects(anchor) } ?? NSScreen.main
         } else {
-            centerOnScreen(size: size, inset: inset)
+            centerOnScreen(size: size)
             return
         }
         let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 800, height: 600)
         let origin = Self.contentOrigin(size: size, anchor: _lastAnchorFrame ?? .zero, visible: visible,
-                                       placement: currentPlacement, avoidanceRects: avoidanceRects)
-        setPanelFrame(contentOrigin: origin, contentSize: size, inset: inset)
+                                       placement: currentPlacement)
+        panel.setFrame(NSRect(origin: origin, size: size), display: true)
     }
 
     /// Repositions the existing window without restarting its timer or changing its content.
-    func reposition(anchorFrame: NSRect, avoidanceRects: [CGRect] = []) {
+    func reposition(anchorFrame: NSRect) {
         guard isShowing else { return }
         _lastAnchorFrame = anchorFrame
-        self.avoidanceRects = avoidanceRects
-        place(at: hostingView.frame.size, inset: PopupMetrics.toastShadowInset)
+        place(at: hostingView.frame.size)
     }
 
     static func contentOrigin(size: CGSize, anchor: CGRect, visible: CGRect,
-                              placement: ToastPlacement, avoidanceRects: [CGRect] = []) -> CGPoint {
+                              placement: ToastPlacement) -> CGPoint {
         if case .nearCursor(let cursor) = placement {
-            return nearCursorOrigin(size: size, cursor: cursor, visible: visible,
-                                    obstacles: [anchor] + avoidanceRects)
+            return nearCursorOrigin(size: size, cursor: cursor, visible: visible, obstacles: [anchor])
         }
         var origin = CGPoint(x: anchor.midX - size.width / 2, y: anchor.midY - size.height / 2)
-        if placement == .above {
-            origin.y = anchor.maxY - PopupMetrics.popupShadowInset + PopupMetrics.captureStatusGap
-            for rect in avoidanceRects.sorted(by: { $0.minY < $1.minY }) {
-                let content = rect.insetBy(dx: PopupMetrics.popupShadowInset, dy: PopupMetrics.popupShadowInset)
-                if CGRect(origin: origin, size: size).intersects(content) {
-                    origin.y = content.maxY + PopupMetrics.captureStatusGap
-                }
-            }
-        }
         origin.x = min(max(origin.x, visible.minX), max(visible.minX, visible.maxX - size.width))
         origin.y = min(max(origin.y, visible.minY), max(visible.minY, visible.maxY - size.height))
         return origin
@@ -303,10 +284,9 @@ public final class ToastPanelController {
     private static func nearCursorOrigin(size: CGSize, cursor: CGPoint, visible: CGRect,
                                          obstacles: [CGRect]) -> CGPoint {
         let gap: CGFloat = 12
-        let bounds = visible.insetBy(dx: PopupMetrics.toastShadowInset, dy: PopupMetrics.toastShadowInset)
+        let bounds = visible
         let contentRects = obstacles.filter { !$0.isEmpty && !$0.isNull }.map {
-            $0.insetBy(dx: PopupMetrics.popupShadowInset, dy: PopupMetrics.popupShadowInset)
-                .insetBy(dx: -4, dy: -4)
+            $0.insetBy(dx: -4, dy: -4)
         }
         func clamp(_ point: CGPoint) -> CGPoint {
             CGPoint(x: min(max(point.x, bounds.minX), max(bounds.minX, bounds.maxX - size.width)),
@@ -336,7 +316,7 @@ public final class ToastPanelController {
         }
         alternatives = alternatives.map(clamp)
         alternatives.sort { distance($0) < distance($1) }
-        // Clear the bar above before falling back below the pointer. Keep feedback nearby
+        // Clear the popup above before falling back below the pointer. Keep feedback nearby
         // rather than jumping to the far edge of a tall result card.
         if let above = alternatives.first(where: {
             $0.y >= cursor.y + gap && distance($0) <= PopupMetrics.toastPreferredAboveDistance && isClear($0)
@@ -354,29 +334,20 @@ public final class ToastPanelController {
         return candidates.min { overlap($0) < overlap($1) } ?? clamp(cursor)
     }
 
-    private func centerOnScreen(size: CGSize, inset: CGFloat) {
+    private func centerOnScreen(size: CGSize) {
         let mouseLocation = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouseLocation) } ?? NSScreen.main
         let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 800, height: 600)
         let origin = CGPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2)
-        setPanelFrame(contentOrigin: origin, contentSize: size, inset: inset)
-    }
-
-    /// Frames the panel around a bubble at `contentOrigin`, expanding by `inset` on every side.
-    private func setPanelFrame(contentOrigin: CGPoint, contentSize: CGSize, inset: CGFloat) {
-        panel.setFrame(NSRect(x: contentOrigin.x - inset,
-                              y: contentOrigin.y - inset,
-                              width: contentSize.width + inset * 2,
-                              height: contentSize.height + inset * 2),
-                       display: true)
+        panel.setFrame(NSRect(origin: origin, size: size), display: true)
     }
 }
 
-/// Plain container view hosting the toast view. Excludes the shadow ring from view hit-testing.
+/// Plain container view hosting the toast view. Clicks outside the toast view fall through.
 final class ToastContainerView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         let view = super.hitTest(point)
-        // If the hit point is this container itself (outside any subviews in the shadow inset ring),
+        // If the hit point is this container itself (outside any subviews),
         // return nil so the ring does not activate the toast.
         if view === self {
             return nil
@@ -391,6 +362,12 @@ final class ToastContainerView: NSView {
 
 /// Hosting view subclass that accepts first mouse click so clicks on the non-key panel register immediately.
 final class ToastHostingView: NSHostingView<ToastView> {
+    /// The system shadow is cached until the window is told its shape changed.
+    override func layout() {
+        super.layout()
+        window?.invalidateShadow()
+    }
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
     }

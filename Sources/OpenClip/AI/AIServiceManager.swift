@@ -215,7 +215,7 @@ public final class AIServiceManager: ObservableObject {
     /// Reorders the preset list, moving `id` into `gapIndex` — the gap the insertion bar was
     /// drawn in, counted between rows (0 = above the first, `count` = below the last), matching
     /// the drop semantics of the Actions outline. The list order *is* the order everywhere — the
-    /// AI sub-bar, the search palette, and the Preferences list all read it — so persisting the
+    /// The search palette and the Preferences list both read it — so persisting the
     /// new array is the whole feature.
     public func movePreset(id: String, toGap gapIndex: Int) {
         let reordered = Self.reordering(presets, moving: id, toGap: gapIndex)
@@ -248,7 +248,7 @@ public final class AIServiceManager: ObservableObject {
     }
 
     /// Appends a new custom preset and returns it. The preset list is the single source of truth
-    /// for every AI surface (palette, AI sub-bar, Preferences), so persisting it is the whole
+    /// for every AI surface (palette, Preferences), so persisting it is the whole
     /// registration — `AIActionSync` picks the change up through `aiActionPresetsDidChange`.
     @discardableResult
     public func addCustomPreset(title: String, prompt: String) -> AIActionPreset {

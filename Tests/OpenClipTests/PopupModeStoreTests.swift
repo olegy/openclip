@@ -7,7 +7,7 @@ final class PopupModeStoreTests: XCTestCase {
 
     func testStoreDefaults() {
         let store = PopupModeStore()
-        XCTAssertEqual(store.mode, .actions)
+        XCTAssertEqual(store.mode, .search)
         XCTAssertNil(store.resultCard)
     }
 

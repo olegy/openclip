@@ -1,19 +1,15 @@
 // ActionAppearanceFields.swift
 // OpenClip
 //
-// Provides reusable SwiftUI form controls for customizing action titles, icon symbols, and display modes.
-// Follows Approach 2 (Hero Header / Shortcuts style): prominent 48x48 hero icon button on the left,
-// action name TextField and [Show Icon | Show Text] segmented control on the right. The hero button
-// asks the router for the icon chooser page (see `IconPickerPage`) instead of floating a popover.
+// Provides reusable SwiftUI form controls for customizing action titles and icon symbols.
+// Hero Header / Shortcuts style: prominent 48x48 hero icon button on the left, action name
+// TextField on the right.
 import SwiftUI
 import Core
 
-/// Reusable appearance configuration form fields: Hero Icon on the left, Title + Display Mode on the right.
+/// Reusable appearance configuration form fields: Hero Icon on the left, Title on the right.
 struct ActionAppearanceFields: View {
     @Binding var title: String
-    /// Native action title used when the name field is empty in Show-Text mode (matches what
-    /// saving persists as the display text).
-    let displayTextFallback: String
     @Binding var iconSymbol: String
     /// Symbol the field was seeded with ("" when the action's real icon is not symbol-representable);
     /// used to tell a user-picked symbol apart from the untouched baseline.
@@ -21,8 +17,7 @@ struct ActionAppearanceFields: View {
     /// The action's effective current icon (.local/.url/.text/.symbol) shown until the user picks a
     /// replacement; nil when the baseline is already fully described by `iconSymbol`.
     let baseIcon: ActionIcon?
-    @Binding var displayMode: Int // 0 = Show Icon, 1 = Show Text
-    /// Symbol Show Icon mode resolves to for text-glyph builtins (Copy/Cut/Paste) while no
+    /// Symbol the icon resolves to for actions with a text-glyph icon while no
     /// replacement has been picked; nil for actions whose icon is already symbol-representable.
     var textGlyphFallbackSymbol: String? = nil
     /// Optional callback when the icon chooser opens.
@@ -31,12 +26,9 @@ struct ActionAppearanceFields: View {
     @State private var isIconPickerPresented = false
     @State private var isIconHovered = false
 
-    /// What the icon preview should render right now (same resolution the popup bar applies).
+    /// What the icon preview should render right now.
     private var previewIcon: ActionIcon {
         Self.resolvedPreviewIcon(
-            displayMode: 0,
-            title: title,
-            displayTextFallback: displayTextFallback,
             iconSymbol: iconSymbol,
             initialIconSymbol: initialIconSymbol,
             baseIcon: baseIcon,
@@ -44,23 +36,14 @@ struct ActionAppearanceFields: View {
         )
     }
 
-    /// Preview resolution, mirroring `ActionCustomizationManager.popupIcon`: Show-Text mode swaps the
-    /// icon slot for the effective display text (custom title, else the native one); Show-Icon mode
-    /// keeps the real icon until a genuinely user-picked replacement symbol exists, falling back to
-    /// `textGlyphFallbackSymbol` for text-glyph builtins.
+    /// Preview resolution: keeps the real icon until a genuinely user-picked replacement symbol
+    /// exists, falling back to `textGlyphFallbackSymbol` for text-glyph builtins.
     static func resolvedPreviewIcon(
-        displayMode: Int,
-        title: String,
-        displayTextFallback: String,
         iconSymbol: String,
         initialIconSymbol: String,
         baseIcon: ActionIcon?,
         textGlyphFallbackSymbol: String? = nil
     ) -> ActionIcon {
-        if displayMode == 1 {
-            let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-            return .text(trimmed.isEmpty ? displayTextFallback : trimmed)
-        }
         if iconSymbol.isEmpty {
             if case .text? = baseIcon, let fallback = textGlyphFallbackSymbol {
                 return .symbol(fallback)
@@ -91,9 +74,6 @@ struct ActionAppearanceFields: View {
         case .symbol(let name):
             return name.isEmpty ? String(localized: "Choose icon") : String(localized: "Icon: \(name) — click to change")
         case .text(let text):
-            if displayMode == 1 {
-                return String(localized: "Popup bar shows “\(text)” — click to choose the icon for icon mode")
-            }
             return String(localized: "Text glyph “\(text)” — click to replace with an icon")
         case .url:
             return String(localized: "Remote image — click to replace with an icon")
@@ -142,26 +122,9 @@ struct ActionAppearanceFields: View {
                 }
             }
 
-            // Title & Display Mode Controls
-            VStack(alignment: .leading, spacing: 8) {
-                TextField("Action Name", text: $title)
-                    .font(.system(size: 13, weight: .medium))
-                    .textFieldStyle(.roundedBorder)
-
-                HStack(spacing: 8) {
-                    Text("Show as:")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    Picker("", selection: $displayMode) {
-                        Text("Icon").tag(0)
-                        Text("Text").tag(1)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(width: 140)
-                }
-            }
+            TextField("Action Name", text: $title)
+                .font(.system(size: 13, weight: .medium))
+                .textFieldStyle(.roundedBorder)
         }
         .padding(14)
     }

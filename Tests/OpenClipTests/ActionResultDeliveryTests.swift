@@ -304,24 +304,13 @@ final class ActionResultDeliveryTests: XCTestCase {
     // MARK: - RuleEngine propagates denyPaste
 
     @MainActor
-    func testRuleEngineResolvesDenyPaste() {
-        RuleEngine.shared.reset()
-        RuleEngine.shared.addOrUpdateRule(AppRule(bundleIdentifiers: ["com.example.terminal"], denyPaste: true))
-        let policy = RuleEngine.shared.resolvePolicies(for: "com.example.terminal")
-        XCTAssertTrue(policy.denyPaste)
-        RuleEngine.shared.reset()
-    }
-
-    @MainActor
     func testRuleEngineDefaultDenyPasteIsFalse() {
-        RuleEngine.shared.reset()
         let policy = RuleEngine.shared.resolvePolicies(for: "com.example.anything")
         XCTAssertFalse(policy.denyPaste)
     }
 
     @MainActor
     func testTerminalHasDefaultDenyPaste() {
-        RuleEngine.shared.reset()
         let policy = RuleEngine.shared.resolvePolicies(for: "com.apple.Terminal")
         XCTAssertTrue(policy.denyPaste)
         let iTermPolicy = RuleEngine.shared.resolvePolicies(for: "com.googlecode.iterm2")
@@ -496,49 +485,6 @@ final class ActionResultDeliveryTests: XCTestCase {
         XCTAssertFalse(controller.isVisible)
     }
 
-    @MainActor
-    func testOCRDirectSecondaryCutIsCopied() async throws {
-        let handler = RecordingHandler()
-        let controller = shownController(resultHandler: handler, pasteProbe: FixedProbe(result: true), appPolicy: .default, source: .ocr)
-        defer { controller.hide() }
-
-        controller.runAction(TextStubAction(result: .cut("recognized")), with: controllerCurrentContext(controller, source: .ocr), isSecondaryClick: true)
-
-        assertCase(try await awaitDelivery(from: handler), .copy("recognized"))
-    }
-
-    @MainActor
-    func testOCRDirectSimulatePasteIsDropped() async throws {
-        let handler = RecordingHandler()
-        let controller = shownController(resultHandler: handler, pasteProbe: FixedProbe(result: true), appPolicy: .default, source: .ocr)
-        defer { controller.hide() }
-
-        controller.runAction(TextStubAction(result: .simulatePaste), with: controllerCurrentContext(controller, source: .ocr), isSecondaryClick: true)
-
-        assertCase(try await awaitDelivery(from: handler), .none)
-    }
-
-    @MainActor
-    func testOCRDeclaredSecondarySequenceAndLoadingResultAreNormalized() async throws {
-        let handler = RecordingHandler()
-        let controller = shownController(resultHandler: handler, pasteProbe: FixedProbe(result: true), appPolicy: .default, source: .ocr)
-        defer { controller.hide() }
-
-        let action = TextStubAction(
-            result: .success,
-            delivery: ActionDelivery(secondary: .sequence([.cut("one"), .simulatePaste, .copy("two")]))
-        )
-        controller.runAction(action, with: controllerCurrentContext(controller, source: .ocr), isSecondaryClick: true)
-        assertCase(try await awaitDelivery(at: 0, from: handler), .copy("one"))
-        assertCase(try await awaitDelivery(at: 1, from: handler), .none)
-        assertCase(try await awaitDelivery(at: 2, from: handler), .copy("two"))
-
-        let loadingController = shownController(resultHandler: handler, pasteProbe: FixedProbe(result: true), appPolicy: .default, source: .ocr)
-        defer { loadingController.hide() }
-        loadingController.runLoadingAction(SlowResultStubAction(result: .cut("loaded")), with: controllerCurrentContext(loadingController, source: .ocr), isSecondaryClick: false)
-        assertCase(try await awaitDelivery(at: 3, from: handler), .copy("loaded"))
-    }
-
     // MARK: - Builtin explicit paste/copy never governed by the picker (controller level)
 
     /// Builtins author explicit outcomes (Copy/Cut/Paste/Calculate/Completion). Even with
@@ -562,7 +508,7 @@ final class ActionResultDeliveryTests: XCTestCase {
 
         assertCase(try await awaitDelivery(from: handler), .paste("hello"))
         XCTAssertFalse(controller.isVisible, "an explicit paste must dismiss like a paste today")
-        XCTAssertEqual(controller.modeStore.mode, .actions, "an explicit paste must never open the preview card")
+        XCTAssertNotEqual(controller.modeStore.mode, .content, "an explicit paste must never open the preview card")
         XCTAssertNil(controller.modeStore.resultCard)
     }
 
@@ -585,7 +531,7 @@ final class ActionResultDeliveryTests: XCTestCase {
 
         assertCase(try await awaitDelivery(from: handler), .copy("hello"))
         XCTAssertEqual(toast.currentFeedback?.message, String(localized: "Copied"))
-        XCTAssertEqual(controller.modeStore.mode, .actions, "an explicit copy must never open the preview card")
+        XCTAssertNotEqual(controller.modeStore.mode, .content, "an explicit copy must never open the preview card")
     }
 
     // MARK: - Preview routing (implicit .text → AI result card)
@@ -667,7 +613,7 @@ final class ActionResultDeliveryTests: XCTestCase {
         XCTAssertNotEqual(controller.modeStore.canPaste, false)
     }
 
-    /// Esc collapses the preview card back to the actions bar (exitContent) without hiding the popup.
+    /// Back (exitContent) leaves the preview card without hiding the popup.
     @MainActor
     func testTextPreviewEscCollapsesToBar() async throws {
         let handler = RecordingHandler()
@@ -689,12 +635,14 @@ final class ActionResultDeliveryTests: XCTestCase {
         }
         controller.exitContent()
 
+        // Back reopens
+        // the palette on the same input.
         deadline = Date().addingTimeInterval(3.0)
-        while controller.modeStore.mode != .actions && Date() < deadline {
+        while controller.modeStore.mode != .search && Date() < deadline {
             try? await Task.sleep(nanoseconds: 2_000_000)
         }
 
-        XCTAssertEqual(controller.modeStore.mode, .actions)
+        XCTAssertEqual(controller.modeStore.mode, .search)
         XCTAssertNil(controller.modeStore.resultCard)
         XCTAssertTrue(controller.isVisible, "collapsing the card never hides the popup")
     }
@@ -1541,13 +1489,6 @@ final class ActionResultDeliveryTests: XCTestCase {
                      "DefineAction must rely on the default nil delivery (picker-governed)")
     }
 
-    /// PasteAction relies on the default nil delivery: the resolver derives `.copy` for a secondary
-    /// click and shows the default "Copied" toast. Builtins and extensions behave identically.
-    func testPasteDeclaresNoDelivery() {
-        XCTAssertNil(PasteAction().delivery,
-                     "PasteAction must rely on the default nil delivery (paste→copy default)")
-    }
-
     @MainActor
     func testAsyncActionCompletingAfterHidePreservesDeliveryPolicyAndContext() async throws {
         let handler = RecordingHandler()
@@ -1594,54 +1535,6 @@ final class ActionResultDeliveryTests: XCTestCase {
     }
 
     @MainActor
-    func testFieldChangeBeforeAsyncActionFinishesCopiesInsteadOfPasting() async throws {
-        let handler = RecordingHandler()
-        let controller = shownController(resultHandler: handler, pasteProbe: FixedProbe(result: true), appPolicy: .default)
-        let target = DeliveryTestApp(pid: 90001)
-        controller.previousFrontmostApp = target
-        controller.frontmostApplicationProvider = { target }
-        var fieldIsCurrent = true
-        controller.selectionIsCurrent = { _ in fieldIsCurrent }
-        controller.runAction(SlowPasteStubAction(text: "late result"),
-                             with: controllerCurrentContext(controller), isSecondaryClick: false)
-        fieldIsCurrent = false
-        assertCase(try await awaitDelivery(from: handler), .copy("late result"))
-        XCTAssertEqual(controller.lastDeliveryStatus, .targetChanged)
-    }
-
-    @MainActor
-    func testStaleEditableSelectionIsRejectedBeforeActionRuns() {
-        let handler = RecordingHandler()
-        let controller = PopupWindowController(
-            resultHandler: handler,
-            pasteProbe: FixedProbe(result: true),
-            settingsStore: MemorySettingsStore()
-        )
-        let selection = SelectionContext(
-            text: "word",
-            sourceApp: AppIdentity(bundleIdentifier: "com.test", localizedName: "Test"),
-            cursorPosition: .zero,
-            timestamp: Date(),
-            appPolicy: .default,
-            selectionGeneration: 7,
-            isEditable: true
-        )
-        controller.startTestSession(for: selection)
-        controller.selectionIsCurrent = { _ in false }
-        let action = KeyPressAction(
-            id: "com.test.bold",
-            title: "Bold",
-            spec: KeyPressSpec(manifestString: "command+b")!,
-            chrome: ActionChrome(requiresLiveSelection: true),
-            rules: ExtensionActionRules(requirements: ActionRequirements(input: .editableSelection))
-        )
-
-        controller.runAction(action, with: controller.currentActionContext!, isSecondaryClick: false)
-        XCTAssertTrue(handler.results.isEmpty)
-        controller.hide()
-    }
-
-    @MainActor
     func testRequiredPasteTargetResultIsDroppedAfterTargetApplicationSwitches() async throws {
         let handler = RecordingHandler()
         let probe = SwitchingTargetProbe()
@@ -1670,20 +1563,6 @@ final class ActionResultDeliveryTests: XCTestCase {
         XCTAssertTrue(probe.switched, "the result should wait for its paste probe")
         XCTAssertTrue(handler.results.isEmpty, "a destination-bound action result must not dispatch after its target app changes during the probe")
         controller.hide()
-    }
-
-    @MainActor
-    func testFieldChangeWhilePasteProbeSuspendsCopiesInsteadOfPasting() async throws {
-        let handler = RecordingHandler()
-        let probe = SwitchingTargetProbe()
-        let controller = shownController(resultHandler: handler, pasteProbe: probe, appPolicy: .default)
-        let target = DeliveryTestApp(pid: 90001)
-        controller.previousFrontmostApp = target
-        controller.frontmostApplicationProvider = { target }
-        controller.selectionIsCurrent = { _ in !probe.switched }
-        controller.deliverResult(.paste("late result"))
-        assertCase(try await awaitDelivery(from: handler), .copy("late result"))
-        XCTAssertEqual(controller.lastDeliveryStatus, .targetChanged)
     }
 
     @MainActor

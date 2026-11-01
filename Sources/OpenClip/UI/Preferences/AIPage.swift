@@ -28,7 +28,7 @@ struct AIPage: View {
 
                     ZStack {
                         squircle
-                            .fill(SettingsTint.neutral)
+                            .fill(SettingsTint.ai)
                             .shadow(color: Color.black.opacity(0.12), radius: 2, y: 1)
 
                         Image(systemName: SettingsPage.ai.systemImage)
@@ -75,7 +75,6 @@ struct AIPresetDraft {
     var title = ""
     var prompt = ""
     var iconSymbol = Constants.defaultAIIconSymbol
-    var displayMode = 1 // Text is the default, even after choosing an icon.
     var alias = ""
     var shortcut: KeyboardShortcuts.Shortcut?
 
@@ -113,8 +112,7 @@ struct AIPresetDraft {
         let symbol = iconSymbol.trimmingCharacters(in: .whitespacesAndNewlines)
         customizations.setOverride(
             for: action.id, title: nil,
-            symbol: symbol.isEmpty ? Constants.defaultAIIconSymbol : symbol,
-            text: displayMode == 1 ? preset.title : nil
+            symbol: symbol.isEmpty ? Constants.defaultAIIconSymbol : symbol
         )
         if let shortcut {
             saveShortcut(shortcut, .actionHotkey(action.id))
@@ -139,11 +137,9 @@ struct AINewPresetPage: View {
                 SettingsCard("Appearance") {
                     ActionAppearanceFields(
                         title: $draft.title,
-                        displayTextFallback: String(localized: "Custom Action"),
                         iconSymbol: $draft.iconSymbol,
                         initialIconSymbol: Constants.defaultAIIconSymbol,
-                        baseIcon: nil,
-                        displayMode: $draft.displayMode
+                        baseIcon: nil
                     )
                 }
 

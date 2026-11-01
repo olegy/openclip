@@ -28,27 +28,27 @@ final class SettingsRouterTests: XCTestCase {
 
     func testSelectReplacesThePathAndRecordsEveryStep() {
         let router = SettingsRouter()
-        router.select(.customize)
+        router.select(.palette)
         router.push(.action(id: "builtin.search"))
         router.select(.ai)
 
         XCTAssertEqual(router.path, [.ai])
-        XCTAssertEqual(router.history, [[.general], [.customize], [.customize, .action(id: "builtin.search")], [.ai]])
+        XCTAssertEqual(router.history, [[.general], [.palette], [.palette, .action(id: "builtin.search")], [.ai]])
         XCTAssertTrue(router.canGoBack)
         XCTAssertFalse(router.canGoForward)
     }
 
     func testPushDrillsInAndPopComesBackOut() {
         let router = SettingsRouter()
-        router.select(.customize)
+        router.select(.palette)
         router.push(.action(id: "a"))
-        XCTAssertEqual(router.path, [.customize, .action(id: "a")])
-        XCTAssertEqual(router.sidebarPage, .customize, "the sidebar keeps the page the editor was reached from")
+        XCTAssertEqual(router.path, [.palette, .action(id: "a")])
+        XCTAssertEqual(router.sidebarPage, .palette, "the sidebar keeps the page the editor was reached from")
         XCTAssertEqual(router.currentPage, .action(id: "a"))
 
         router.pop()
-        XCTAssertEqual(router.path, [.customize])
-        XCTAssertEqual(router.history.last, [.customize], "pop is a navigation of its own, so it is recorded")
+        XCTAssertEqual(router.path, [.palette])
+        XCTAssertEqual(router.history.last, [.palette], "pop is a navigation of its own, so it is recorded")
     }
 
     func testPopOnASidebarPageIsANoOp() {
@@ -62,27 +62,27 @@ final class SettingsRouterTests: XCTestCase {
 
     func testPushingAPageAlreadyInThePathReturnsToItInsteadOfStacking() {
         let router = SettingsRouter()
-        router.select(.customize)
+        router.select(.palette)
         router.push(.action(id: "a"))
         router.pushIconPicker(writingTo: .constant("bolt"))
         XCTAssertEqual(router.path.count, 3)
 
         router.push(.action(id: "a"))
-        XCTAssertEqual(router.path, [.customize, .action(id: "a")])
+        XCTAssertEqual(router.path, [.palette, .action(id: "a")])
     }
 
     func testBackAndForwardWalkTheHistory() {
         let router = SettingsRouter()
-        router.select(.customize)
+        router.select(.palette)
         router.push(.action(id: "a"))
         router.select(.about)
 
         router.goBack()
-        XCTAssertEqual(router.path, [.customize, .action(id: "a")])
+        XCTAssertEqual(router.path, [.palette, .action(id: "a")])
         XCTAssertTrue(router.canGoForward)
 
         router.goBack()
-        XCTAssertEqual(router.path, [.customize])
+        XCTAssertEqual(router.path, [.palette])
         router.goBack()
         XCTAssertEqual(router.path, [.general])
         XCTAssertFalse(router.canGoBack)
@@ -100,36 +100,36 @@ final class SettingsRouterTests: XCTestCase {
 
     func testANewNavigationAfterGoingBackDropsTheForwardEntries() {
         let router = SettingsRouter()
-        router.select(.customize)
+        router.select(.palette)
         router.select(.about)
         router.goBack()
         XCTAssertTrue(router.canGoForward)
 
-        router.select(.shortcuts)
+        router.select(.store)
         XCTAssertFalse(router.canGoForward)
-        XCTAssertEqual(router.history, [[.general], [.customize], [.shortcuts]])
+        XCTAssertEqual(router.history, [[.general], [.palette], [.store]])
     }
 
     func testShowingTheCurrentPathAgainRecordsNothing() {
         let router = SettingsRouter()
-        router.select(.customize)
-        router.select(.customize)
-        router.show(path: [.customize])
-        XCTAssertEqual(router.history, [[.general], [.customize]])
+        router.select(.palette)
+        router.select(.palette)
+        router.show(path: [.palette])
+        XCTAssertEqual(router.history, [[.general], [.palette]])
     }
 
     func testSelectingTheSidebarPageWhileDrilledInReturnsToItsTop() {
         let router = SettingsRouter()
-        router.select(.customize)
+        router.select(.palette)
         router.push(.action(id: "a"))
-        router.select(.customize)
-        XCTAssertEqual(router.path, [.customize])
+        router.select(.palette)
+        XCTAssertEqual(router.path, [.palette])
     }
 
     func testHistoryIsCapped() {
         let router = SettingsRouter()
         for step in 0..<(SettingsRouter.historyLimit + 40) {
-            router.select(step % 2 == 0 ? .customize : .general)
+            router.select(step % 2 == 0 ? .palette : .general)
         }
         XCTAssertEqual(router.history.count, SettingsRouter.historyLimit)
         XCTAssertEqual(router.historyIndex, SettingsRouter.historyLimit - 1)
@@ -143,7 +143,7 @@ final class SettingsRouterTests: XCTestCase {
 
         router.openConfiguration(for: action, request: request)
 
-        XCTAssertEqual(router.path, [.extensionPackage(id: "com.example.tool"), .action(id: action.id)],
+        XCTAssertEqual(router.path, [.extensions, .extensionPackage(id: "com.example.tool"), .action(id: action.id)],
                        "an extension's command is configured under its extension")
         XCTAssertEqual(router.configurationRequest(for: action.id), request)
         router.clearConfigurationRequest(for: action.id)
@@ -154,7 +154,7 @@ final class SettingsRouterTests: XCTestCase {
         let router = SettingsRouter()
         var symbol = "bolt"
         let binding = Binding(get: { symbol }, set: { symbol = $0 })
-        router.select(.customize)
+        router.select(.palette)
         router.push(.action(id: "a"))
         router.pushIconPicker(writingTo: binding)
 
@@ -175,80 +175,16 @@ final class SettingsRouterTests: XCTestCase {
         XCTAssertNil(router.notice)
     }
 
-    // MARK: - Sidebar search
+    // MARK: - Sidebar
 
-    func testSidebarRowMatchesTitleOrKeywordsAndNeedsEveryWord() {
-        let row = SettingsSidebarRow(page: .ai, title: "AI", keywords: ["model", "api key", "prompt"], tile: .symbol("sparkles", tint: .purple))
-        XCTAssertTrue(row.matches("ai"))
-        XCTAssertTrue(row.matches("API"), "case does not matter")
-        XCTAssertTrue(row.matches("key"))
-        XCTAssertTrue(row.matches("api prompt"), "every word can come from a different keyword")
-        XCTAssertFalse(row.matches("api hotkey"), "one word that matches nothing rules the row out")
-        XCTAssertFalse(row.matches("store"))
-        XCTAssertTrue(row.matches("   "), "a blank query matches everything")
-    }
-
-    func testSidebarFilterKeepsEverythingForABlankQueryAndOrder() {
-        let rows = SettingsPage.systemPages.map { SettingsSidebarRow(systemPage: $0) }
-        XCTAssertEqual(SettingsSidebarFilter.filter(rows, query: "").map(\.page), SettingsPage.systemPages)
-        XCTAssertEqual(SettingsSidebarFilter.filter(rows, query: "hotkey").map(\.page), [.general, .customize])
-        XCTAssertEqual(SettingsSidebarFilter.filter(rows, query: "licence").map(\.page), [.about])
-    }
-
-    func testTheSidebarListsWhatShippedBeforeWhatWasInstalled() {
-        // Deliberately shuffled, and with names that would interleave under a plain A-Z sort.
-        let rows = [
-            SettingsSidebarRow(page: .extensionPackage(id: "com.a.appwrite"), title: "Appwrite", tile: .symbol("puzzlepiece.extension.fill", tint: .gray)),
-            SettingsSidebarRow(page: .builtinAction(id: "builtin.paste"), title: "Paste", tile: .symbol("bolt.fill", tint: .gray)),
-            SettingsSidebarRow(page: .customActions, title: "Custom Actions", tile: .symbol("plus", tint: .mint)),
-            SettingsSidebarRow(page: .extensionPackage(id: "com.z.jwt"), title: "JWT", tile: .symbol("puzzlepiece.extension.fill", tint: .gray)),
-            SettingsSidebarRow(page: .builtinAction(id: "builtin.copy"), title: "Copy", tile: .symbol("bolt.fill", tint: .gray)),
-            SettingsSidebarRow(systemPage: .ai),
-        ]
-
-        XCTAssertEqual(SettingsSidebarOrder.sorted(rows).map(\.title), [
-            "AI",              // OpenClip's own, first
-            "Copy", "Paste",   // then the built-in actions, alphabetically
-            "Custom Actions",  // then what the user wrote here
-            "Appwrite", "JWT", // then what the user installed, alphabetically
-        ])
-    }
-
-    func testTheSecondGroupSplitsWhereTheTintChanges() {
-        let rows = SettingsSidebarOrder.sorted([
-            SettingsSidebarRow(page: .extensionPackage(id: "com.a.appwrite"), title: "Appwrite", tile: .symbol("puzzlepiece.extension.fill", tint: .gray)),
-            SettingsSidebarRow(page: .builtinAction(id: "builtin.copy"), title: "Copy", tile: .symbol("bolt.fill", tint: .gray)),
-            SettingsSidebarRow(page: .customActions, title: "Custom Actions", tile: .symbol("plus", tint: .mint)),
-            SettingsSidebarRow(page: .extensionPackage(id: "com.z.jwt"), title: "JWT", tile: .symbol("puzzlepiece.extension.fill", tint: .gray)),
-            SettingsSidebarRow(systemPage: .ai),
-        ])
-
-        let (bundled, installed) = SettingsSidebarOrder.split(rows)
-        XCTAssertEqual(bundled.map(\.title), ["AI", "Copy", "Custom Actions"],
-                       "everything OpenClip ships stays above the gap, in its sorted order")
-        XCTAssertEqual(installed.map(\.title), ["Appwrite", "JWT"],
-                       "only installed packages sit below it")
-    }
-
-    func testSplittingASidebarWithNothingInstalledLeavesTheSecondSectionEmpty() {
-        let rows = [
-            SettingsSidebarRow(systemPage: .ai),
-            SettingsSidebarRow(page: .customActions, title: "Custom Actions", tile: .symbol("plus", tint: .mint)),
-        ]
-
-        let (bundled, installed) = SettingsSidebarOrder.split(rows)
-        XCTAssertEqual(bundled.count, 2)
-        XCTAssertTrue(installed.isEmpty, "no trailing gap when nothing is installed")
-    }
-
-    func testTheSidebarOrderIsStableForRowsOfTheSameKind() {
-        let rows = [
-            SettingsSidebarRow(page: .extensionPackage(id: "b"), title: "Übersicht", tile: .symbol("x", tint: .gray)),
-            SettingsSidebarRow(page: .extensionPackage(id: "a"), title: "Alpha", tile: .symbol("x", tint: .gray)),
-            SettingsSidebarRow(page: .extensionPackage(id: "c"), title: "alpha two", tile: .symbol("x", tint: .gray)),
-        ]
-        XCTAssertEqual(SettingsSidebarOrder.sorted(rows).map(\.title), ["Alpha", "alpha two", "Übersicht"],
-                       "names sort the way the Finder sorts them, not by code point")
+    func testTheSidebarListsTheAppsPagesThenOnePagePerKindOfAction() {
+        XCTAssertEqual(SettingsPage.systemPages, [.general, .palette, .store, .about])
+        XCTAssertEqual(SettingsPage.actionPages, [.ai, .builtinActions, .customActions, .extensions])
+        for page in SettingsPage.systemPages + SettingsPage.actionPages {
+            XCTAssertTrue(page.isSidebarPage, "\(page.id) is a sidebar row")
+            XCTAssertNotNil(page.staticTitle, "\(page.id) has a fixed title")
+        }
+        XCTAssertFalse(SettingsPage.extensionPackage(id: "com.example").isSidebarPage, "a package is reached from Extensions")
     }
 
     // MARK: - Installed extensions
@@ -311,7 +247,7 @@ final class SettingsRouterTests: XCTestCase {
 
         XCTAssertEqual(InstalledExtensionInfo.all(from: [action]).map(\.packageID), [package])
         XCTAssertEqual(SettingsDestination.path(for: action),
-                       [.extensionPackage(id: package), .action(id: action.id)],
+                       [.extensions, .extensionPackage(id: package), .action(id: action.id)],
                        "opening the command keeps its extension's page one step back")
     }
 
@@ -336,13 +272,13 @@ final class SettingsRouterTests: XCTestCase {
 
     func testEveryKindOfActionHasOneHome() {
         let builtin = StubAction(id: "builtin.copy", title: "Copy", chrome: ActionChrome(badge: .none, rowStyle: .standard, popupBehavior: .perform, source: .builtin))
-        XCTAssertEqual(SettingsDestination.path(for: builtin), [.builtinAction(id: "builtin.copy")], "a built-in is a sidebar row of its own")
+        XCTAssertEqual(SettingsDestination.path(for: builtin), [.builtinActions, .action(id: "builtin.copy")], "a built-in lives under Built-in")
 
         let group = StubAction(id: "com.openclip.jwt.jwt", title: "JWT", chrome: Self.extensionChrome(package: "com.openclip.jwt", badgeName: "JWT", popupBehavior: .showSubActions))
-        XCTAssertEqual(SettingsDestination.path(for: group), [.extensionPackage(id: "com.openclip.jwt")], "an extension's group row is the extension")
+        XCTAssertEqual(SettingsDestination.path(for: group), [.extensions, .extensionPackage(id: "com.openclip.jwt")], "an extension's group row is the extension")
 
         let command = StubAction(id: "com.openclip.jwt.jwt.inspect", title: "Inspect", chrome: Self.extensionChrome(package: "com.openclip.jwt", badgeName: "JWT"))
-        XCTAssertEqual(SettingsDestination.path(for: command), [.extensionPackage(id: "com.openclip.jwt"), .action(id: command.id)], "a command sits under its extension")
+        XCTAssertEqual(SettingsDestination.path(for: command), [.extensions, .extensionPackage(id: "com.openclip.jwt"), .action(id: command.id)], "a command sits under its extension")
 
         let custom = StubAction(id: "custom.abc123", title: "Mine", chrome: ActionChrome(badge: .custom, rowStyle: .standard, popupBehavior: .perform, source: .custom))
         XCTAssertEqual(SettingsDestination.path(for: custom), [.customActions, .action(id: "custom.abc123")])
@@ -352,14 +288,10 @@ final class SettingsRouterTests: XCTestCase {
         XCTAssertEqual(SettingsDestination.path(for: manifestBackedCustom), [.customActions, .action(id: "custom.def456")], "a custom action stored as a manifest package is still the user's action")
         XCTAssertTrue(SettingsDestination.isCustomAction(manifestBackedCustom))
 
-        let customGroup = StubAction(id: "vgroup.abc", title: "My Group", chrome: ActionChrome(badge: .none, rowStyle: .actionGroup, popupBehavior: .showSubActions, source: .custom))
-        XCTAssertEqual(SettingsDestination.path(for: customGroup), [.customize, .action(id: "vgroup.abc")], "groups are made and edited on Customize")
-        XCTAssertFalse(SettingsDestination.isCustomAction(customGroup))
-
         let gated = GatedExtensionAction(packageID: "com.example.gated", title: "Gated", icon: .symbol("lock"), chrome: Self.extensionChrome(package: "com.example.gated"), reason: .notEnabled)
-        XCTAssertEqual(SettingsDestination.path(for: gated), [.extensionPackage(id: "com.example.gated")])
+        XCTAssertEqual(SettingsDestination.path(for: gated), [.extensions, .extensionPackage(id: "com.example.gated")])
 
-        XCTAssertEqual(SettingsDestination.path(forPackage: "com.example.multi"), [.extensionPackage(id: "com.example.multi")])
+        XCTAssertEqual(SettingsDestination.path(forPackage: "com.example.multi"), [.extensions, .extensionPackage(id: "com.example.multi")])
     }
 
     // MARK: - Toolbar accessories
@@ -404,16 +336,8 @@ final class SettingsRouterTests: XCTestCase {
 
     // MARK: - Toolbar's + menu
 
-    func testTheActionsListOfferNewGroupCustomActionAndInstall() {
-        let items = PreferencesPlusMenu.items(for: .customize)
-        XCTAssertEqual(items.map(\.action), [.newGroup, .openCustomActions, .installExtensionFile])
-        XCTAssertEqual(items.filter(\.startsGroup).count, 1, "the second pair is set off from the group item")
-        XCTAssertEqual(items.first { $0.startsGroup }?.action, .openCustomActions)
-    }
-
     func testASingleActionPageKeepsAWordlessPlus() {
         for (page, action): (SettingsPage, PreferencesToolbarAction) in [
-            (.appRules, .addApplication),
             (.ai, .addAIAction),
         ] {
             let items = PreferencesPlusMenu.items(for: page)
@@ -423,7 +347,7 @@ final class SettingsRouterTests: XCTestCase {
     }
 
     func testPagesThatAddNothingShowNoMenu() {
-        for page in [SettingsPage.general, .appearance, .shortcuts, .store, .about, .customActions] {
+        for page in [SettingsPage.general, .palette, .store, .about, .builtinActions, .customActions, .extensions] {
             XCTAssertTrue(PreferencesPlusMenu.items(for: page).isEmpty, "\(page) has no + menu")
         }
     }
@@ -522,7 +446,7 @@ final class SettingsRouterTests: XCTestCase {
         XCTAssertNotEqual(first, SettingsTint.hue(for: "com.openclip.urlquery"))
     }
 
-    func testTheSidebarsThreeKindsOfRowAreThreeColours() {
+    func testEverySidebarRowHasItsOwnColour() {
         // Extensions hash to their own stable colour, which the settings rows never borrow — the
         // settings group is chrome and reads as its own palette (blue/black/grey).
         let generated = SettingsPage.extensionPackage(id: "com.openclip.jwt").tint
@@ -531,48 +455,14 @@ final class SettingsRouterTests: XCTestCase {
                               "\(page.id) must not wear an extension's generated colour")
         }
 
-        XCTAssertEqual(SettingsPage.ai.tint, SettingsTint.openClip)
-        XCTAssertEqual(SettingsPage.customActions.tint, SettingsTint.openClip)
-        XCTAssertEqual(SettingsPage.builtinAction(id: "builtin.copy").tint, SettingsTint.openClip)
+        let rows = SettingsPage.systemPages + SettingsPage.actionPages
+        for (index, page) in rows.enumerated() {
+            for other in rows[(index + 1)...] {
+                XCTAssertNotEqual(page.tint, other.tint, "\(page.id) and \(other.id) must be told apart")
+            }
+        }
 
         XCTAssertNotEqual(generated, SettingsPage.extensionPackage(id: "com.openclip.urlquery").tint)
-    }
-
-    // MARK: - Naming a group made by dropping
-
-    func testADroppedGroupTakesThePlainNameUntilItIsTaken() {
-        let numbered: (Int) -> String = { "New Group \($0)" }
-
-        XCTAssertEqual(
-            ActionsOutlineCoordinator.uniqueGroupTitle(base: "New Group", numbered: numbered, existing: []),
-            "New Group"
-        )
-        XCTAssertEqual(
-            ActionsOutlineCoordinator.uniqueGroupTitle(base: "New Group", numbered: numbered, existing: ["Writing"]),
-            "New Group"
-        )
-        XCTAssertEqual(
-            ActionsOutlineCoordinator.uniqueGroupTitle(base: "New Group", numbered: numbered, existing: ["New Group"]),
-            "New Group 2"
-        )
-        XCTAssertEqual(
-            ActionsOutlineCoordinator.uniqueGroupTitle(
-                base: "New Group",
-                numbered: numbered,
-                existing: ["New Group", "New Group 2", "New Group 3"]
-            ),
-            "New Group 4",
-            "it counts past every number already in use"
-        )
-        XCTAssertEqual(
-            ActionsOutlineCoordinator.uniqueGroupTitle(
-                base: "New Group",
-                numbered: numbered,
-                existing: ["New Group", "New Group 3"]
-            ),
-            "New Group 2",
-            "and fills the first gap rather than always going to the end"
-        )
     }
 
     // MARK: - Helpers

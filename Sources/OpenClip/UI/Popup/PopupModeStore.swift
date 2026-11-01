@@ -1,36 +1,24 @@
 // PopupModeStore.swift
 // OpenClip
 //
-// Shared observable mode state for the popup: the screen mode (actions bar / search palette /
-// native result card) and the payloads those screens render (result card payload). Statuses
-// render as a floating toast via ToastPanelController, not through the store. The real popup
-// observes the store injected by PopupWindowController; the static
-// preview uses a throwaway store so it never affects the live popup (mirrors the PopupHoverState
-// shared + opt-in-static pattern).
+// Shared observable state for the popup: what it shows (the command palette or the native result
+// card) and the payloads those screens render. Statuses render as a floating toast via
+// ToastPanelController, not through the store. PopupView observes the store injected by
+// PopupWindowController.
 import Foundation
 import Combine
 import Core
 
 @MainActor
 public final class PopupModeStore: ObservableObject {
-    /// The popup's current mode: the normal action bar, the action-search palette, or the
-    /// native AI result card.
-    @Published public var mode: PopupMode = .actions
-    /// The current search scope, if the palette is opened into a group's sub-actions.
-    @Published public var scope: SearchScope? = nil
-    /// True when the popup sits low on screen and search results render above the field.
-    @Published public var searchResultsAbove: Bool = false
-    /// True when the group sub-bar opens above the main bar (indicator triangle sits at the top pointing up).
-    /// False when it opens below the main bar (indicator triangle sits at the bottom pointing down).
-    @Published public var subBarAbove: Bool = true
+    /// What the popup shows: the command palette or the native result card.
+    @Published public var mode: PopupMode = .search
     /// The native result card currently shown (only meaningful while `mode == .content`). Any
     /// action whose resolved outcome is text renders here, not just AI presets.
     @Published public var resultCard: ResultCardPayload? = nil
-    /// The most room the result card may take — the user's remembered size, restored from
-    /// preferences (`SettingKey.resultCardWidth` / `resultCardHeight`) when content mode is
-    /// entered and updated live while a resize handle is dragged. The card renders at what its
-    /// text needs up to this; `nil` means the default maximum. Cleared whenever the card leaves
-    /// the screen, so every entry re-reads the preference.
+    /// The result card's size: the palette's size when the card opens, updated live while a resize
+    /// handle is dragged; `nil` means the default maximum. Cleared whenever the card leaves the
+    /// screen.
     @Published public var resultCardSize: CGSize? = nil
     /// True once the user has dragged a resize handle of the surface on screen. From then on the
     /// surface keeps the dragged size verbatim — any size they want, whatever its content does —
@@ -38,20 +26,15 @@ public final class PopupModeStore: ObservableObject {
     /// content-fitted up to the remembered maximum.
     @Published public var isSurfaceUserSized: Bool = false
     /// Whether the target app can Paste, probed (AX) when the popup shows. `false` hides the
-    /// card's Paste button and the bar/search Paste + Cut actions; `nil` (unknown/probing) and
+    /// card's Paste button and the palette's Paste + Cut actions; `nil` (unknown/probing) and
     /// `true` keep them visible.
     @Published public var canPaste: Bool? = nil
-    /// True while an asynchronous AI action is executing, used to suspend distance auto-dismiss.
+    /// True while an asynchronous AI action is executing.
     @Published public var isProcessingAI: Bool = false
     /// True once the user has explicitly pinned the result card via the pin button. When `true`
     /// the card behaves as modal (auto-dismiss suppressed), mirroring `hasUserMovedCard` in the
     /// controller. Cleared by `hide()` and `exitContent()`.
     @Published public var isCardPinned: Bool = false
-    /// True while the horizontal group sub-bar is visible (transient or pinned). Read by
-    /// `PopupWindowController` to intercept Escape before dismissing the full popup.
-    @Published public var isSubBarActive: Bool = false
-    /// The ID of the currently active group action whose sub-bar is visible.
-    @Published public var activeSubGroupID: String? = nil
     /// Computed inline results for actions with `chrome.isInlineResult == true`, keyed by action ID.
     @Published public var inlineResults: [String: String] = [:]
 
@@ -90,16 +73,5 @@ public struct ResultCardPayload: Sendable, Equatable {
         self.isRefining = isRefining
         self.canFollowUp = canFollowUp
         self.file = file
-    }
-}
-
-/// A scoped palette: a parent action (the group row / the AI launcher) and its pre-resolved children.
-public struct SearchScope {
-    public let parent: any Action
-    public let children: [any Action]
-
-    public init(parent: any Action, children: [any Action]) {
-        self.parent = parent
-        self.children = children
     }
 }

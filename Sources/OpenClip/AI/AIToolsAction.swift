@@ -1,10 +1,9 @@
 // AIToolsAction.swift
 // OpenClip
 //
-// The "AI Tools" bar launcher, modeled as a normal reorderable builtin action so users can
-// position it among their other bar actions. Never a search-palette entry (chrome.launchesAI is
-// excluded in `ActionRegistry.searchCatalog`); the popup bar routes its click into AI mode via
-// `chrome.launchesAI` instead of `perform`. Its enable state is single-sourced to
+// The "AI Tools" launcher: the builtin row that owns the AI presets, so switching AI off hides
+// every preset with it. Never a search-palette entry (`chrome.launchesAI` is excluded in
+// `ActionRegistry.searchCatalog`). Its enable state is single-sourced to
 // `AIServiceManager.isAIEnabled`, which the AI-tab and Actions-tab toggles share.
 import Foundation
 import Core
@@ -28,7 +27,7 @@ public struct AIToolsAction: Action, SubActionProviding {
         settingsStore.get(.isAIEnabled)
     }
 
-    /// Defensive fallback: the bar routes via `chrome.launchesAI` and the palette excludes this
+    /// Defensive fallback: the palette excludes this
     /// action, so `perform` is never the entry point (same contract as `AIAction`).
     @MainActor
     public func perform(_ context: ActionContext) async throws -> ActionResult {
@@ -38,9 +37,6 @@ public struct AIToolsAction: Action, SubActionProviding {
     // The AI Tools launcher's sub-actions are the registered AI presets (chrome source `.ai`).
     @MainActor
     public func subActions(in catalog: [any Action]) -> [any Action] {
-        let standaloneIDs = settingsStore.get(.standaloneAIActionIDs)
-        return catalog.filter { action in
-            ActionIdentity.isAIPreset(action) && !standaloneIDs.contains(action.id)
-        }
+        catalog.filter { ActionIdentity.isAIPreset($0) }
     }
 }

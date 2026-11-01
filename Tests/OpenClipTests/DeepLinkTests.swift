@@ -39,7 +39,7 @@ final class DeepLinkTests: XCTestCase {
     /// is unauthenticated and must not expose or mutate configuration.
     func testRejectsSettingsRoutes() {
         XCTAssertNil(OpenClipDeepLink.parse(URL(string: "openclip://settings")!))
-        XCTAssertNil(OpenClipDeepLink.parse(URL(string: "openclip://set?popupTheme=glass")!))
+        XCTAssertNil(OpenClipDeepLink.parse(URL(string: "openclip://set?popupThemeColor=dark")!))
         XCTAssertNil(OpenClipDeepLink.parse(URL(string: "openclip://command/reset-appearance")!))
     }
 }

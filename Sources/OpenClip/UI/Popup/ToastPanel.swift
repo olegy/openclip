@@ -19,7 +19,7 @@ public class ToastPanel: NSPanel {
         self.collectionBehavior = [.canJoinAllSpaces, .canJoinAllApplications, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         self.backgroundColor = .clear
         self.isOpaque = false
-        self.hasShadow = false
+        self.hasShadow = true
         // Defaults to passive pass-through. ToastPanelController sets ignoresMouseEvents = false
         // for interactive loading toasts (clicks cancel the task) and for auto-dismissing toasts,
         // so the cursor can hold the toast by hovering it.

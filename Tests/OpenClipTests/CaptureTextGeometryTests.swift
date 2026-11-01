@@ -34,26 +34,22 @@ final class CaptureTextGeometryTests: XCTestCase {
         ))
     }
 
-    func testPopupAnchorKeepsReleasePointAndDragDirectionWhenPointerHasNotMoved() {
-        let anchor = CaptureTextPopupAnchor.resolve(
+    func testToastAnchorKeepsReleasePointWhenPointerHasNotMoved() {
+        let point = CaptureTextToastAnchor.point(
             releasePoint: CGPoint(x: 100, y: 200),
-            mouseDownPoint: CGPoint(x: 40, y: 180),
             currentPointer: CGPoint(x: 106, y: 202)
         )
 
-        XCTAssertEqual(anchor.cursorPosition, CGPoint(x: 100, y: 200))
-        XCTAssertEqual(anchor.mouseDownLocation, CGPoint(x: 40, y: 180))
+        XCTAssertEqual(point, CGPoint(x: 100, y: 200))
     }
 
-    func testPopupAnchorFollowsMovedPointerAndDropsStaleDragDirection() {
-        let anchor = CaptureTextPopupAnchor.resolve(
+    func testToastAnchorFollowsMovedPointer() {
+        let point = CaptureTextToastAnchor.point(
             releasePoint: CGPoint(x: 100, y: 200),
-            mouseDownPoint: CGPoint(x: 40, y: 180),
             currentPointer: CGPoint(x: 140, y: 230)
         )
 
-        XCTAssertEqual(anchor.cursorPosition, CGPoint(x: 140, y: 230))
-        XCTAssertNil(anchor.mouseDownLocation)
+        XCTAssertEqual(point, CGPoint(x: 140, y: 230))
     }
 
     @MainActor

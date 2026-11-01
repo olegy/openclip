@@ -25,14 +25,13 @@ public enum PopupResizeGeometry {
     }
 
     /// Clamps a proposed size so the surface never shrinks below `minSize` and the panel around it
-    /// (surface plus shadow ring) stays inside `screenBounds` by `PopupMetrics.popupPadding` while
+    /// stays inside `screenBounds` by `PopupMetrics.popupPadding` while
     /// growing from a fixed `panelTopLeft`. When the panel already sits too close to a screen edge
     /// for even the minimum, the minimum wins — the surface must stay usable.
     public static func clamp(_ proposed: CGSize, minSize: CGSize, panelTopLeft: CGPoint, screenBounds: CGRect) -> CGSize {
-        let ring = 2 * PopupMetrics.popupShadowInset
         let padding = PopupMetrics.popupPadding
-        let maxWidth = screenBounds.maxX - padding - panelTopLeft.x - ring
-        let maxHeight = panelTopLeft.y - (screenBounds.minY + padding) - ring
+        let maxWidth = screenBounds.maxX - padding - panelTopLeft.x
+        let maxHeight = panelTopLeft.y - (screenBounds.minY + padding)
         return CGSize(
             width: bounded(proposed.width, min: minSize.width, max: maxWidth),
             height: bounded(proposed.height, min: minSize.height, max: maxHeight)
@@ -44,11 +43,10 @@ public enum PopupResizeGeometry {
     /// is decided afterwards and nudged back on-screen by the controller. A size remembered on a
     /// large external display must still open usable on a laptop screen.
     public static func fit(_ remembered: CGSize, minSize: CGSize, in screenBounds: CGRect) -> CGSize {
-        let ring = 2 * PopupMetrics.popupShadowInset
         let padding = 2 * PopupMetrics.popupPadding
         return CGSize(
-            width: bounded(remembered.width, min: minSize.width, max: screenBounds.width - padding - ring),
-            height: bounded(remembered.height, min: minSize.height, max: screenBounds.height - padding - ring)
+            width: bounded(remembered.width, min: minSize.width, max: screenBounds.width - padding),
+            height: bounded(remembered.height, min: minSize.height, max: screenBounds.height - padding)
         )
     }
 

@@ -49,11 +49,16 @@ targets:
         LSUIElement: true
         NSHumanReadableCopyright: "Copyright © 2026 Ganesh M and OpenClip Contributors. AGPL-3.0 licensed."
         NSAppleEventsUsageDescription: "OpenClip needs to control other apps to run your AppleScript actions and to paste results back into the app you were using."
-        SUFeedURL: https://github.com/ganeshmshetty/openclip/releases/latest/download/appcast.xml
-        SUPublicEDKey: JbyKx5LUkYkM+ovsJ1NPDR2W+1ptfdsu6b51KBsKhWo=
+        # Lite's own feed and Ed25519 key (scripts/release.sh). Never upstream's: Sparkle would
+        # replace this build with an upstream release.
+        SUFeedURL: https://github.com/olegy/openclip/releases/latest/download/appcast.xml
+        SUPublicEDKey: dFBKKIVeP3Of0PU6uDiPtMReKpBnNNQhZ2trdQBf0Dc=
+        # Sparkle checks once a day without asking, never downloads on its own, and offers no
+        # "install automatically" checkbox: an update installs only from the user's click.
         SUScheduledCheckInterval: 86400
         SUEnableAutomaticChecks: true
         SUAutomaticallyUpdate: false
+        SUAllowsAutomaticUpdates: false
         CFBundleLocalizations:
           - en
           - zh-Hans
@@ -63,8 +68,16 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        MARKETING_VERSION: "1.8.2"
-        CURRENT_PROJECT_VERSION: "23"
+        # OpenClip Lite: the upstream version it is based on plus a Lite revision, e.g. 1.8.2-lite.1.
+        # Xcode takes CFBundleShortVersionString from MARKETING_VERSION itself (the INFOPLIST_KEY_
+        # line below has no effect), so the suffix has to live here. SemanticVersion ignores it, so
+        # extension minOpenClipVersion checks still compare against the upstream triplet.
+        # CFBundleVersion is what Sparkle compares: the upstream build plus the Lite revision
+        # (23.5, 23.6, … then 24.1 on the next upstream base), so it always grows.
+        OPENCLIP_UPSTREAM_BUILD: "23"
+        OPENCLIP_LITE_REVISION: "5"
+        MARKETING_VERSION: "1.8.2-lite.$(OPENCLIP_LITE_REVISION)"
+        CURRENT_PROJECT_VERSION: "$(OPENCLIP_UPSTREAM_BUILD).$(OPENCLIP_LITE_REVISION)"
         INFOPLIST_KEY_CFBundleShortVersionString: $(MARKETING_VERSION)
         INFOPLIST_KEY_CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -82,10 +95,10 @@ targets:
         LOCALIZATION_PREFERS_STRING_CATALOGS: YES
       configs:
         Debug:
-          PRODUCT_BUNDLE_IDENTIFIER: com.openclip.OpenClip.dev
+          PRODUCT_BUNDLE_IDENTIFIER: com.olegy.openclip.dev
           INFOPLIST_KEY_CFBundleDisplayName: OpenClip Dev
         Release:
-          PRODUCT_BUNDLE_IDENTIFIER: com.openclip.OpenClip
+          PRODUCT_BUNDLE_IDENTIFIER: com.olegy.openclip
           INFOPLIST_KEY_CFBundleDisplayName: OpenClip
     dependencies:
       - target: Core

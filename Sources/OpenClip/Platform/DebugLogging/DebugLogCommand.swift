@@ -101,7 +101,7 @@ enum DebugLogCommand {
 
         Prints the OpenClip version, shows help, dumps recent OpenClip log entries
         (subsystem com.openclip), or prints a JSON snapshot of every known setting, then
-        exits. Run the app binary directly (not via dev_run.sh).
+        exits. Run the app binary directly (not via `open`).
 
         Logs are also persistently written to ~/Library/Logs/OpenClip/openclip.log.
 

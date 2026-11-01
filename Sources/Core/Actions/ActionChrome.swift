@@ -86,13 +86,13 @@ public struct ActionChrome: Codable, Sendable, Equatable {
 
     public enum RowStyle: String, Codable, Sendable, Equatable {
         case standard
+        /// An extension's group row, whose sub-actions the palette lists in its place.
         case actionGroup
     }
 
     public enum PopupBehavior: String, Codable, Sendable, Equatable {
         case perform
         case showSubActions
-        case provideCompletions
     }
 
     public enum Source: Codable, Sendable, Equatable {
@@ -100,8 +100,8 @@ public struct ActionChrome: Codable, Sendable, Equatable {
         case custom
         case extensionPkg(packageID: String)
         /// AI preset action (a row in AIServiceManager's preset list). Reachable through the
-        /// action-search palette and Preferences → Actions, never through the popup bar
-        /// (the reorderable `builtin.aiTools` action is the bar's entry point to AI).
+        /// action-search palette and Preferences → Actions (where the `builtin.aiTools` group
+        /// holds them by default).
         case ai
 
         private enum CodingKeys: String, CodingKey {
@@ -178,12 +178,11 @@ public struct ActionChrome: Codable, Sendable, Equatable {
     public let rowStyle: RowStyle
     public let popupBehavior: PopupBehavior
     public let source: Source
-    /// True when the action reads or mutates the real text selection (e.g. Copy/Cut) and is
-    /// therefore unsafe when the text came from the clipboard rather than a live selection.
+    /// True when the action reads or mutates the real text selection (an extension declaring
+    /// `input: "liveSelection"`) and is therefore unsafe when the text came from the clipboard rather than a live selection.
     public let requiresLiveSelection: Bool
-    /// True when the action is an AI-mode launcher (the "AI Tools" bar entry). The popup bar
-    /// routes its click into AI mode instead of `perform`, and the search palette excludes it
-    /// (AI presets are already searchable there).
+    /// True when the action is an AI-mode launcher (the "AI Tools" group). The search palette
+    /// excludes it (AI presets are already searchable there).
     public let launchesAI: Bool
     /// True when the action is slow (e.g. an AppleScript that activates an app) and the popup
     /// should close immediately on click with a spinner toast until the result lands.
@@ -191,8 +190,8 @@ public struct ActionChrome: Codable, Sendable, Equatable {
     /// The loading toast's text when `showsLoading` (e.g. "Connecting to Music…"). When nil the
     /// presentation layer falls back to its default ("Opening <title>…").
     public let loadingMessage: String?
-    /// True when the action produces an inline result preview directly in the popup bar (e.g. Calculate
-    /// or synchronous JavaScript inline extensions) rather than performing on click.
+    /// True when the action produces an inline result preview directly in its palette row (e.g.
+    /// Calculate or synchronous JavaScript inline extensions) rather than performing on click.
     public let isInlineResult: Bool
     /// The kind of uncommitted result the action produces (.text, .file, .none, .dynamic).
     public let outputKind: ActionOutputKind

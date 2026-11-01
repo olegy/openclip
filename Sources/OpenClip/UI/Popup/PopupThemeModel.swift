@@ -1,37 +1,13 @@
 // PopupThemeModel.swift
 // OpenClip
 //
-// Pure resolution logic for the popup theme storage, shared by PopupView,
-// ResultCardView and PopupThemeSelector. The theme has two axes: a category
-// ("classic" solid colors vs "glass" material) and a shared appearance
-// ("system", "light" or "dark") that applies to whichever category is active.
-//
-// Storage:
-//   "popupTheme"   — category: "classic" | "glass". Legacy stored
-//                    values ("system"/"light"/"dark"/"glass") map onto
-//                    this: colors → classic, "glass" → glass.
-//   "popupThemeColor" — shared appearance: "system"/"light"/"dark",
-//                    used by both Classic and Glass.
+// Pure resolution logic for the popup appearance storage, shared by PopupView, ResultCardView
+// and the toasts. The only axis is the color mode stored under "popupThemeColor":
+// "system", "light" or "dark".
 import SwiftUI
 
 /// Resolves the popup theme storage into the tokens the rendering code switches on.
 enum PopupThemeModel {
-    enum Category: String {
-        case classic
-        case glass
-    }
-
-    /// Maps a stored `popupTheme` value to a category. Legacy values ("system"/"light"/"dark")
-    /// mean the solid-color themes were active; "glass" means glass. New values pass through.
-    static func category(fromStored raw: String) -> Category {
-        switch raw {
-        case "glass", "classic":
-            return raw == "glass" ? .glass : .classic
-        default:
-            return .classic
-        }
-    }
-
     /// Resolves the classic appearance token ("light"/"dark"), honoring "system".
     static func classicToken(appearance: String, systemIsDark: Bool) -> String {
         if appearance == "system" { return systemIsDark ? "dark" : "light" }
@@ -39,7 +15,7 @@ enum PopupThemeModel {
     }
 
     /// The color scheme the popup subtree should render under so `.primary`/`.secondary` and
-    /// materials match the effective theme — classic and glass alike. "system" follows the Mac;
+    /// materials match the effective theme. "system" follows the Mac;
     /// "light"/"dark" pin it regardless of the system. Applied only within the popup subtree so
     /// it never changes the surrounding Preferences window.
     static func effectiveScheme(appearance: String, systemIsDark: Bool) -> ColorScheme {
@@ -51,7 +27,7 @@ enum PopupThemeModel {
     }
 
     /// The resting (non-hover) foreground color for content on the given effective theme
-    /// token ("light"/"dark"/"glass"). Glass follows `.primary` so it tracks the forced scheme.
+    /// token ("light"/"dark").
     static func restForeground(for effectiveTheme: String) -> Color {
         switch effectiveTheme {
         case "light": return .black.opacity(0.85)
@@ -60,7 +36,7 @@ enum PopupThemeModel {
         }
     }
 
-    /// Slightly softened accent for the popup action bars.
+    /// Slightly softened accent for popup highlights.
     static var barHoverFill: Color {
         Color(nsColor: NSColor.controlAccentColor.blended(withFraction: 0.08, of: .white) ?? .controlAccentColor)
     }
@@ -83,7 +59,7 @@ enum PopupThemeModel {
         }
     }
 
-    /// The background fill for the classic (solid) popup surface.
+    /// The background fill for the solid popup surface.
     @ViewBuilder
     public static func classicSurfaceBackground(for colorScheme: ColorScheme, in shape: RoundedRectangle) -> some View {
         shape.fill(
@@ -93,85 +69,6 @@ enum PopupThemeModel {
                 blue: colorScheme == .dark ? 0.165 : 0.96
             )
         )
-    }
-}
-
-// MARK: - Edge Fade
-
-/// The fading layer that keeps the popup's fixed chrome — the search field, a card's header and
-/// footer — legible over the rows scrolling beneath it.
-///
-/// A glass popup blurs and tints what scrolls under as a fading extension of the card material, so
-/// the rows dissolve into a frosted edge instead of showing through a translucent band. A classic
-/// popup fades its opaque card colour instead, since there is nothing behind it to blur.
-struct PopupEdgeFade: View {
-    enum Edge {
-        case top
-        case bottom
-    }
-
-    let edge: Edge
-    let effectiveTheme: String
-    let colorScheme: ColorScheme
-    let height: CGFloat
-    /// The card's own colour: the tint blended over the blur for glass, the fill faded for classic.
-    let cardColor: Color
-
-    var body: some View {
-        Group {
-            if effectiveTheme == "glass" && !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
-                LayeredGlassBackground(cornerRadius: 0, colorScheme: colorScheme)
-                    .mask(fadeMask)
-            } else {
-                LinearGradient(stops: solidStops, startPoint: .top, endPoint: .bottom)
-            }
-        }
-        .frame(height: height)
-        .allowsHitTesting(false)
-    }
-
-    /// Opacity ramp: opaque at the pane's edge, clear away from it, so the blur dissolves rather
-    /// than ending in a hard line.
-    private var fadeMask: LinearGradient {
-        switch edge {
-        case .top:
-            return LinearGradient(
-                stops: [
-                    .init(color: .black, location: 0.0),
-                    .init(color: .black.opacity(0.9), location: 0.5),
-                    .init(color: .clear, location: 1.0)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        case .bottom:
-            return LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0.0),
-                    .init(color: .black.opacity(0.9), location: 0.5),
-                    .init(color: .black, location: 1.0)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
-    }
-
-    private var solidStops: [Gradient.Stop] {
-        switch edge {
-        case .top:
-            return [
-                .init(color: cardColor, location: 0.0),
-                .init(color: cardColor.opacity(0.85), location: 0.55),
-                .init(color: cardColor.opacity(0.0), location: 1.0)
-            ]
-        case .bottom:
-            return [
-                .init(color: cardColor.opacity(0.0), location: 0.0),
-                .init(color: cardColor.opacity(0.85), location: 0.45),
-                .init(color: cardColor, location: 1.0)
-            ]
-        }
     }
 }
 
@@ -236,74 +133,44 @@ public extension EnvironmentValues {
 
 // MARK: - Shared Card Chrome
 
-/// Shared footer control surface for the search palette and result card. Glass uses the native
-/// Liquid Glass effect on macOS 26+, while classic themes and older systems keep their tinted fill.
-struct PopupFooterButtonChrome: ViewModifier {
-    let effectiveTheme: String
+/// Fill and hairline shared by the palette's and the result card's round or rounded button chrome.
+private struct PopupButtonSurface<S: InsettableShape>: ViewModifier {
+    let shape: S
     let colorScheme: ColorScheme
     let isHovered: Bool
-    var tint: Color? = nil
-
-    private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: PopupMetrics.footerButtonCornerRadius, style: .continuous)
-    }
+    let tint: Color?
 
     func body(content: Content) -> some View {
-        Group {
-            if effectiveTheme == "glass",
-               #available(macOS 26.0, *),
-               !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
-                if let tint {
-                    content
-                        .background(shape.fill(tint.opacity(colorScheme == .light ? 1.0 : (isHovered ? 0.38 : 0.28))))
-                        .background(.ultraThinMaterial, in: shape)
-                        .glassEffect(.regular.tint(tint.opacity(colorScheme == .light ? 1.0 : 0.42)).interactive(), in: shape)
-                        .overlay(shape.stroke(Color.white.opacity(0.24), lineWidth: 0.5))
-                } else {
-                    content
-                        .background(shape.fill(Color.primary.opacity(isHovered ? 0.14 : 0.08)))
-                        .background(.ultraThinMaterial, in: shape)
-                        .glassEffect(.regular.interactive(), in: shape)
-                        .overlay(
-                            shape.stroke(
-                                colorScheme == .dark ? Color.white.opacity(0.18) : Color.black.opacity(0.10),
-                                lineWidth: 0.5
-                            )
-                        )
-                }
-            } else {
-                content
-                    .background(
-                        shape.fill(
-                        tint?.opacity(isHovered ? 0.85 : 1.0)
-                            ?? Color.primary.opacity(isHovered
-                                ? (colorScheme == .dark ? 0.18 : 0.12)
-                                : (colorScheme == .dark ? 0.12 : 0.07))
-                        )
-                    )
-                    .overlay(
-                        shape.stroke(
-                            tint == nil
-                                ? (colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.08))
-                                : Color.white.opacity(0.20),
-                            lineWidth: 0.5
-                        )
-                    )
-            }
-        }
+        content
+            .background(
+                shape.fill(
+                    tint?.opacity(isHovered ? 0.85 : 1.0)
+                        ?? Color.primary.opacity(isHovered
+                            ? (colorScheme == .dark ? 0.18 : 0.12)
+                            : (colorScheme == .dark ? 0.12 : 0.07))
+                )
+            )
+            .overlay(
+                shape.stroke(
+                    tint == nil
+                        ? (colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.08))
+                        : Color.white.opacity(0.20),
+                    lineWidth: 0.5
+                )
+            )
     }
 }
 
 extension View {
+    /// Footer control surface for the search palette and result card.
     func popupFooterButtonChrome(
-        effectiveTheme: String,
         colorScheme: ColorScheme,
         isHovered: Bool,
         tint: Color? = nil
     ) -> some View {
         modifier(
-            PopupFooterButtonChrome(
-                effectiveTheme: effectiveTheme,
+            PopupButtonSurface(
+                shape: RoundedRectangle(cornerRadius: PopupMetrics.footerButtonCornerRadius, style: .continuous),
                 colorScheme: colorScheme,
                 isHovered: isHovered,
                 tint: tint
@@ -311,156 +178,50 @@ extension View {
         )
     }
 
+    /// Compact circular chrome for the result card's header controls.
     func popupHeaderButtonChrome(
-        effectiveTheme: String,
         colorScheme: ColorScheme,
         isHovered: Bool,
         tint: Color? = nil
     ) -> some View {
-        modifier(
-            PopupHeaderButtonChrome(
-                effectiveTheme: effectiveTheme,
-                colorScheme: colorScheme,
-                isHovered: isHovered,
-                tint: tint
-            )
-        )
-    }
-}
-
-/// Compact circular chrome for the result card's header controls.
-private struct PopupHeaderButtonChrome: ViewModifier {
-    let effectiveTheme: String
-    let colorScheme: ColorScheme
-    let isHovered: Bool
-    var tint: Color? = nil
-
-    private let shape = Circle()
-
-    func body(content: Content) -> some View {
-        Group {
-            if effectiveTheme == "glass",
-               #available(macOS 26.0, *),
-               !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
-                if let tint {
-                    content
-                        .background(shape.fill(tint.opacity(isHovered ? 0.38 : 0.28)))
-                        .background(.ultraThinMaterial, in: shape)
-                        .glassEffect(.regular.tint(tint.opacity(0.42)).interactive(), in: shape)
-                        .overlay(shape.stroke(Color.white.opacity(0.24), lineWidth: 0.5))
-                } else {
-                    content
-                        .background(shape.fill(Color.primary.opacity(isHovered ? 0.14 : 0.08)))
-                        .background(.ultraThinMaterial, in: shape)
-                        .glassEffect(.regular.interactive(), in: shape)
-                        .overlay(
-                            shape.stroke(
-                                colorScheme == .dark ? Color.white.opacity(0.18) : Color.black.opacity(0.10),
-                                lineWidth: 0.5
-                            )
-                        )
-                }
-            } else {
-                content
-                    .background(
-                        shape.fill(
-                            tint?.opacity(isHovered ? 0.85 : 1.0)
-                                ?? Color.primary.opacity(isHovered
-                                    ? (colorScheme == .dark ? 0.18 : 0.12)
-                                    : (colorScheme == .dark ? 0.12 : 0.07))
-                        )
-                    )
-                    .overlay(
-                        shape.stroke(
-                            tint == nil
-                                ? (colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.08))
-                                : Color.white.opacity(0.20),
-                            lineWidth: 0.5
-                        )
-                    )
-            }
-        }
+        modifier(PopupButtonSurface(shape: Circle(), colorScheme: colorScheme, isHovered: isHovered, tint: tint))
     }
 }
 
 public struct PopupCardChromeModifier: ViewModifier {
     public let cornerRadius: CGFloat
-    public let effectiveTheme: String
     public let colorScheme: ColorScheme
 
     public init(
         cornerRadius: CGFloat = PopupMetrics.cardCornerRadius,
-        effectiveTheme: String,
         colorScheme: ColorScheme
     ) {
         self.cornerRadius = cornerRadius
-        self.effectiveTheme = effectiveTheme
         self.colorScheme = colorScheme
     }
 
-    @ViewBuilder
     public func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        if effectiveTheme == "glass" && !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
-            shadowed(
-                content
-                    .background(LayeredGlassBackground(cornerRadius: cornerRadius, colorScheme: colorScheme))
-                    .clipShape(shape)
-                    .overlay(outerBorder(shape))
-                    .overlay(rimHighlight(shape))
-            )
-        } else {
-            content
-                .clipShape(shape)
-                .background {
-                    // Rasterize only the solid surface and its shadow, with enough transparent
-                    // space for the blur. AppKit can promote the live buttons to backing layers
-                    // after presentation; their clipping must not change the shadow's buffer.
-                    shadowed(PopupThemeModel.classicSurfaceBackground(for: colorScheme, in: shape))
-                        .padding(PopupMetrics.popupShadowInset)
-                        .drawingGroup()
-                        .padding(-PopupMetrics.popupShadowInset)
-                        .allowsHitTesting(false)
-                }
-                .overlay(outerBorder(shape))
-                .overlay(rimHighlight(shape))
-        }
+        return content
+            .clipShape(shape)
+            .background { PopupThemeModel.classicSurfaceBackground(for: colorScheme, in: shape) }
+            .overlay(outerBorder(shape))
+            .overlay(rimHighlight(shape))
     }
 
-    private func shadowed<Surface: View>(_ surface: Surface) -> some View {
-        surface
-            .shadow(
-                color: .black.opacity(colorScheme == .dark ? 0.38 : 0.14),
-                radius: PopupMetrics.cardShadowContactRadius,
-                x: 0,
-                y: PopupMetrics.cardShadowContactYOffset
-            )
-            .shadow(
-                color: .black.opacity(colorScheme == .dark ? 0.32 : 0.16),
-                radius: PopupMetrics.cardShadowAmbientRadius,
-                x: 0,
-                y: PopupMetrics.cardShadowAmbientYOffset
-            )
-    }
-
-    /// The outer hairline. Glass keeps its lit gradient; classic gets a top-to-bottom
-    /// gradient that is slightly brighter at the top where ambient light hits.
-    @ViewBuilder
+    /// The outer hairline: a top-to-bottom gradient, slightly brighter at the top where ambient
+    /// light hits.
     private func outerBorder(_ shape: RoundedRectangle) -> some View {
-        if effectiveTheme == "glass" {
-            LayeredGlassBorder(cornerRadius: cornerRadius, colorScheme: colorScheme)
-        } else {
-            shape.stroke(
-                LinearGradient(
-                    colors: colorScheme == .dark
-                        ? [Color.white.opacity(0.20), Color.white.opacity(0.08)]
-                        : [Color.black.opacity(0.16), Color.black.opacity(0.06)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ),
-                lineWidth: 1.0
-            )
-        }
+        shape.stroke(
+            LinearGradient(
+                colors: colorScheme == .dark
+                    ? [Color.white.opacity(0.20), Color.white.opacity(0.08)]
+                    : [Color.black.opacity(0.16), Color.black.opacity(0.06)],
+                startPoint: .top,
+                endPoint: .bottom
+            ),
+            lineWidth: 1.0
+        )
     }
 
     /// A 1px specular line just inside the top edge, fading out by the bottom: the highlight that
@@ -485,14 +246,13 @@ public struct PopupCardChromeModifier: ViewModifier {
 public extension View {
     func popupCardChrome(
         cornerRadius: CGFloat = PopupMetrics.cardCornerRadius,
-        effectiveTheme: String,
         colorScheme: ColorScheme
     ) -> some View {
-        modifier(PopupCardChromeModifier(cornerRadius: cornerRadius, effectiveTheme: effectiveTheme, colorScheme: colorScheme))
+        modifier(PopupCardChromeModifier(cornerRadius: cornerRadius, colorScheme: colorScheme))
     }
 }
 
-// MARK: - Action Bar Highlight
+// MARK: - Row Highlight
 
 extension View {
     /// Search-style neutral highlight; inset chrome preserves the full button hit area.

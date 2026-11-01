@@ -98,13 +98,14 @@ final class InlineResultEvaluatorTests: XCTestCase {
         let bareAmountResult = await evaluator.evaluateAsync(action: action, context: bareAmountContext)
         XCTAssertEqual(bareAmountResult, "$200|200")
 
-        evaluator.prewarm(actions: [action], context: context)
-        await evaluator.awaitPrewarmed(timeout: 2.0)
-        XCTAssertEqual(
-            evaluator.prewarmedResult(for: action, textHash: selection.hashValue),
-            "$200K|200",
-            "Prewarming must use the same regex match as click execution"
-        )
+        var published: String?
+        let finished = expectation(description: "inline result")
+        evaluator.startEvaluation(action: action, context: context, sessionID: UUID()) {
+            published = $0
+            finished.fulfill()
+        }
+        await fulfillment(of: [finished], timeout: 2.0)
+        XCTAssertEqual(published, "$200K|200", "The inline preview must use the same regex match as click execution")
     }
 
     func testTextResultPreservesWhitespaceButWhitespaceOnlyIsEmpty() async {
@@ -187,46 +188,24 @@ final class InlineResultEvaluatorTests: XCTestCase {
         XCTAssertNil(evaluator.runningTask(for: action.id, sessionID: session))
     }
 
-    func testPrewarmingCachesSynchronousResult() {
-        let evaluator = InlineResultEvaluator()
-        let calculate = CalculateAction()
-        let context = ActionContext(selection: SelectionContext(text: "25 + 75"))
-
-        evaluator.prewarm(actions: [calculate], context: context)
-        let cached = evaluator.prewarmedResult(for: calculate.id, textHash: "25 + 75".hashValue)
-        XCTAssertEqual(cached, "100")
-
-        let mismatch = evaluator.prewarmedResult(for: calculate.id, textHash: "different".hashValue)
-        XCTAssertNil(mismatch)
-    }
-
-    func testClearPrewarmedInvalidatesCache() {
+    func testEndSessionRetainsWarmCache() async {
         let evaluator = InlineResultEvaluator()
         let calculate = CalculateAction()
         let context = ActionContext(selection: SelectionContext(text: "50 * 2"))
 
-        evaluator.prewarm(actions: [calculate], context: context)
-        XCTAssertEqual(evaluator.prewarmedResult(for: calculate.id, textHash: "50 * 2".hashValue), "100")
-
-        evaluator.clearPrewarmed()
-        XCTAssertNil(evaluator.prewarmedResult(for: calculate.id, textHash: "50 * 2".hashValue))
-    }
-
-    func testEndSessionRetainsWarmCache() {
-        let evaluator = InlineResultEvaluator()
-        let calculate = CalculateAction()
-        let context = ActionContext(selection: SelectionContext(text: "50 * 2"))
-
-        evaluator.prewarm(actions: [calculate], context: context)
-        XCTAssertEqual(evaluator.prewarmedResult(for: calculate.id, textHash: "50 * 2".hashValue), "100")
+        let session = UUID()
+        let finished = expectation(description: "inline result")
+        evaluator.startEvaluation(action: calculate, context: context, sessionID: session) { _ in finished.fulfill() }
+        await fulfillment(of: [finished], timeout: 2.0)
+        XCTAssertEqual(evaluator.memoizedResult(for: calculate, textHash: "50 * 2".hashValue), "100")
 
         // Hiding the popup must keep the warm result so the next selection renders instantly.
-        evaluator.endSession(UUID())
-        XCTAssertEqual(evaluator.prewarmedResult(for: calculate.id, textHash: "50 * 2".hashValue), "100")
+        evaluator.endSession(session)
+        XCTAssertEqual(evaluator.memoizedResult(for: calculate, textHash: "50 * 2".hashValue), "100")
 
         // Full invalidation still clears it.
-        evaluator.clearPrewarmed()
-        XCTAssertNil(evaluator.prewarmedResult(for: calculate.id, textHash: "50 * 2".hashValue))
+        evaluator.clearMemoized()
+        XCTAssertNil(evaluator.memoizedResult(for: calculate, textHash: "50 * 2".hashValue))
     }
 
     func testStartEvaluationRetriesAfterTransientFailure() async {
@@ -276,20 +255,26 @@ final class InlineResultEvaluatorTests: XCTestCase {
         let context = ActionContext(selection: SelectionContext(text: "input"))
         let hash = "input".hashValue
 
+        func evaluate() async -> String? {
+            var published: String?
+            let finished = expectation(description: "inline result")
+            evaluator.startEvaluation(action: action, context: context, sessionID: UUID()) {
+                published = $0
+                finished.fulfill()
+            }
+            await fulfillment(of: [finished], timeout: 2.0)
+            return published
+        }
+
         optionStore.setStringValue("A", actionID: action.id, option: option)
-        evaluator.prewarm(actions: [action], context: context)
-        await evaluator.awaitPrewarmed(timeout: 2.0)
-        XCTAssertEqual(evaluator.prewarmedResult(for: action, textHash: hash), "A")
+        let first = await evaluate()
+        XCTAssertEqual(first, "A")
+        XCTAssertEqual(evaluator.memoizedResult(for: action, textHash: hash), "A")
 
-        // Changing the option must invalidate the warmed result, not serve the old "A".
+        // Changing the option must invalidate the memoized result, not serve the old "A".
         optionStore.setStringValue("B", actionID: action.id, option: option)
-        evaluator.prewarm(actions: [action], context: context)
-        await evaluator.awaitPrewarmed(timeout: 2.0)
-        XCTAssertEqual(evaluator.prewarmedResult(for: action, textHash: hash), "B")
-
-        // Even a joined prewarm task must not replay the stale fingerprint's result.
-        var published: String?
-        evaluator.startEvaluation(action: action, context: context, sessionID: UUID()) { published = $0 }
-        XCTAssertEqual(published, "B")
+        XCTAssertNil(evaluator.memoizedResult(for: action, textHash: hash))
+        let second = await evaluate()
+        XCTAssertEqual(second, "B")
     }
 }

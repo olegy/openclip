@@ -1,6 +1,6 @@
 # Preferences & Customization
 
-OpenClip offers extensive customization for action ordering, display labels, custom icons, and AI provider integration through the Preferences window.
+OpenClip offers customization for pinned palette actions, display labels, custom icons, and AI provider integration through the Preferences window.
 
 ---
 
@@ -8,22 +8,24 @@ OpenClip offers extensive customization for action ordering, display labels, cus
 
 You can open OpenClip Preferences in these ways:
 - Click the OpenClip menu bar icon and select **Settings…**
-- Press `Cmd + ,` while the OpenClip popup bar or settings window is focused.
+- Press `Cmd + ,` while the command palette or settings window is focused.
 - If the menu bar icon is hidden, open OpenClip again from Finder or Spotlight.
 
 ## General
 
-The **General** page configures how OpenClip is summoned, launch options, and system integration:
+The **General** page configures shortcuts, appearance, launch options, and permissions:
 
-- **Triggers**:
-  - **Appear Automatically**: Shows the popup bar as soon as text is selected.
-  - **Hold Mouse to Trigger**: Summons the popup when you press and hold the mouse button without moving the pointer (drag-select does not count). Works independently of **Appear Automatically**.
-  - **Keyboard Shortcut**: Configures the global hotkey (default `⌥⌘C`) to toggle the popup and search palette.
+- **Shortcuts**:
+  - **Command Palette**: The global hotkey (default `⌥⌘C`) that reads the selected text — or the clipboard when nothing is selected — and opens the palette. Pressing it again closes the palette.
+  - **Capture Text**: Select a screen region and copy its text. No shortcut is set by default.
+- **Appearance**: the palette's look, shared by the result card and toasts — see [Popup Appearance & Theme](#popup-appearance--theme).
+- **Save Location**: Where file results are saved (Downloads by default).
 - **App**:
   - **Show Menu Bar Icon**: Displays OpenClip in the macOS menu bar. Turning it off removes the icon immediately without stopping OpenClip or its shortcut.
   - **Start at Login**: Launches OpenClip automatically when you log in.
 - **Permissions**:
-  - **Accessibility Access**: Shows current macOS Accessibility authorization status (required to observe selections and paste).
+  - **Accessibility Access**: Required to read the selected text and to paste.
+  - **Screen Recording**: Required by Capture Text.
 
 ---
 
@@ -32,58 +34,53 @@ The **General** page configures how OpenClip is summoned, launch options, and sy
 The settings window is designed with a modern macOS Liquid Glass layout:
 
 - **Translucent Backdrop & Clean Sidebar**: The window features a dark blurred Liquid Glass surface with a fixed-width, borderless sidebar sitting directly on the window background beneath native window controls.
-- **Capsule Search**: A capsule search field at the top of the sidebar filters pages and actions by name, alias, keyword, or internal settings in real time.
 - **Distinctive Icon Tiles**: Every page and action is represented with distinct, colored rounded-square icon tiles for instant visual navigation.
 - **Inset Detail Card**: Settings details render within an inset rounded glass card featuring an integrated header with frosted back/forward navigation controls (`⌘[` / `⌘]`), breadcrumbs, and contextual action buttons.
 - **Interactive Shortcut Recorder**: Global and action shortcuts can be recorded via a popover with live modifier visualization, dashed key placeholder, and direct key-combination listening.
-- **Sidebar Organization**: The sidebar presents core settings pages (General, Appearance, Customize, Shortcuts, App Rules, Store, About), followed by AI, built-in actions, custom actions, and installed extensions.
-- **About Page**: Houses version information, links, and update controls, including an **Update Channel** picker for **Stable** and **Beta** feeds.
+- **Sidebar Organization**: The sidebar lists the app's pages (General, Palette, Store, About), then, under a static **Actions** heading, one page per kind of action: **AI**, **Built-in**, **Custom** and **Extensions**. Every action has exactly one home among those four, where it is edited.
+- **About Page**: Shows **OpenClip Lite**, its version, and under it the **Check for Updates** and **GitHub** links; then automatic extension updates (the Store is checked once a day) and log export. The app itself checks for updates once a day and installs one only when you choose to.
 
 ---
 
-## Customize: the popup bar's layout
+## Palette
 
-The **Customize** page does two things and nothing else: it sets the **order** of everything in
-the floating popup bar, and it manages **custom groups**.
+**Palette** lists every action the command palette can show, in two sections:
 
 ```
-Settings > Customize
-├── Drag a row to reorder the popup bar
-├── Drop an action onto a group to add it; drag it out to remove it
-├── Select several rows, then + (or right-click › Create Group from Selection…)
-└── Right-click a group › Configure Group… / Ungroup
+Settings > Palette
+├── Pinned       — opens at the top of the palette, in this order; drag to reorder
+└── All Actions  — everything else, by name
 ```
 
-Rows carry no switches or buttons. Double-clicking a row opens that action's own page, which is
-where its name, icon, shortcut, options and enable switch live. The toolbar's **+** makes a
-**New Group** from the selected rows.
+- Right-click an action and choose **Pin** to add it to **Pinned**; **Unpin** takes it back out.
+  At most 10 actions can be pinned — what an open palette shows without scrolling — and **Pin** is
+  greyed out once the list is full.
+- Each row shows the action's alias and hotkey the way the palette does, its enable switch, and
+  where it comes from (AI, Built-in, Custom or the extension's name).
+- Clicking a row opens the action's own page, which is where its name, icon, alias, shortcut and
+  options are changed. Nothing else is edited on Palette.
+- The search field at the top right filters by name, alias, keyword or source.
 
-### How Action Ordering Works
-- Dragging actions changes their relative order in the floating popup bar.
-- Action ordering is saved automatically via [`SettingsStore`](../../Sources/Core/Settings/SettingsStore.swift) under key `actionOrder`.
+When nothing is typed, the palette shows the pinned actions first, then the rest with the most
+recently used first, then by name. Once you type, the match decides the order
+(alias → title prefix → title contains → fuzzy → keywords); pins and recent use only break ties.
+Pins are saved under the settings key `action.pinned`.
 
----
+## AI
 
-## Shortcuts
+The AI provider and the AI actions — see [AI Provider Setup](#ai-provider-setup).
 
-**Shortcuts** lists every runnable action — built-ins, AI prompts, your custom actions, then one
-group per installed extension — with a switch, an alias (type it in the palette to jump straight
-to the action), a hotkey, and a **›** into the action's own page. Search filters by name, alias
-or keyword.
+## Built-in
 
-## Built-in actions
+**Built-in** lists the actions that come with OpenClip — Search, Calculate, Define, Add Event, Open Link and Reveal in Finder — each with its switch and a **›** into its page:
+the name and icon shown in the palette, the alias and hotkey, and any options the action declares
+(Search's engine, for example). **Revert** discards unsaved edits; **Save Changes** applies them.
 
-Search, Copy, Cut, Paste, Calculate, Define, Add Event, Open Link, Reveal in Finder and Word
-Completion each have a row in the sidebar's second group. The page opens with the same hero an
-extension's page does — the action's icon and name — then the name and icon shown in the popup
-bar, the alias and hotkey, and any options the action declares (Search's engine, for example).
-Its switch is in the toolbar. **Revert** discards unsaved edits; **Save Changes** applies them.
+## Custom
 
-## Custom Actions
-
-Your own Open URL, Text Snippet and Shell Script actions live on the **Custom Actions** page:
-each with a switch and a › into its editor, plus **Add Custom Action** (also the toolbar's **+**).
-An action's page has **Duplicate** and **Delete Action…** in its footer.
+Your own Open URL, Text Snippet, Shell Script and JavaScript actions live on **Custom**: the ones
+you made, each with a switch and a › into its editor, then **Create with AI** and a card per kind
+to make a new one. An action's page has **Duplicate** and **Delete Action…** in its … menu.
 
 ## Store
 
@@ -97,8 +94,9 @@ with the curated showcase on top, and it is the only one that shows the Featured
 
 ## Extensions
 
-Every installed extension has a page under the sidebar's second group, opening with a hero: the
-extension's icon, its name, what it does, and its version and author.
+**Extensions** lists the installed packages, each with a switch for the whole package and a › into
+its page, plus **Browse the Store**. An extension's page opens with a hero: the extension's icon,
+its name, what it does, and its version and author.
 
 The extension's own controls sit in the toolbar, on the same line as the back and forward arrows:
 
@@ -107,8 +105,7 @@ The extension's own controls sit in the toolbar, on the same line as the back an
   Uninstalling asks first, in a banner at the top of the page.
 
 Below the hero are each of the extension's actions with its own switch and a **›** into that
-action's settings, **Update** when the Store has a newer version, and — for an extension that
-groups its actions behind one icon — **Name and Icon in Popup Bar**.
+action's settings, and **Update** when the Store has a newer version.
 
 The same toolbar pattern applies to every page that is about one thing: **AI** has its switch
 there, and an action's page has its switch plus **Duplicate** and **Delete Action** in the … menu.
@@ -120,9 +117,8 @@ there, and an action's page has its switch plus **Duplicate** and **Delete Actio
 OpenClip allows overriding the display title and icon for any action without editing code or manifests.
 
 ### Display Overrides via `ActionCustomizationManager`
-- **Custom Title**: Override the default name displayed in popup tooltips or preferences tables.
-- **Custom SF Symbol**: Enter any valid macOS SF Symbol name (e.g. `sparkles`, `doc.on.doc`, `terminal`).
-- **Custom Text Icon**: Display a 1–2 character text icon instead of a symbol.
+- **Custom Title**: Override the default name displayed in the palette and in Settings.
+- **Custom Icon**: Pick an SF Symbol, an Iconify icon, or a custom image from the icon picker.
 
 All overrides are managed via [`ActionCustomizationManager`](../../Sources/Core/Actions/ActionCustomizationManager.swift) and stored persistently in `SettingsStore`.
 
@@ -135,19 +131,12 @@ When an action produces text output (e.g. transformations, dictionary definition
 
 ## Popup Appearance & Theme
 
-Under **Customize → Behavior**, turn off **Show Command Palette** to hide the ⌘ search
-button at the end of the popup bar. The search keyboard shortcut (⌥⌘C by default) still works.
-**Reset** restores the button.
-
-The **Appearance** page shows a static preview of the floating popup bar and lets you style it. The preview is a fixed visual mock of the canonical action set (Search, Copy, Cut, Paste plus the AI Tools action) — it does **not** reflect your configured actions, ordering, or overrides, and hovering it never affects the real popup.
+The **Appearance** card on the **General** page styles the palette, the result card and toasts.
 
 ### Popup Theme
-The theme control has two labeled rows:
-
-1. **Category** — **Classic** (solid color themes) or **Glass** (a frosted material surface: Liquid Glass on macOS 26+, a standard frosted material on macOS 14–15).
-2. **Appearance** — **System**, **Light**, or **Dark**. This appearance is shared by both categories (Glass adapts to it too — Glass is a material, not a color).
-
-The preview always reflects the active combination, and a pinned appearance forces the popup's `colorScheme` so the material *and* the content colors flip together.
+- **Popup Theme** — **Classic** (solid color themes) or **Glass** (a frosted material surface: Liquid Glass on macOS 26+, a standard frosted material on macOS 14–15).
+- **Color Mode** — **System**, **Light**, or **Dark**. This is shared by both themes (Glass adapts to it too — Glass is a material, not a color). A pinned mode forces the popup's `colorScheme` so the material *and* the content colors flip together.
+- **Notification Size** — the size of toasts, on a five-step scale.
 
 > [!NOTE]
 > The Liquid Glass effect requires macOS 26+. On macOS 14–15 the Glass option renders as an `.ultraThinMaterial` frosted surface.
@@ -156,28 +145,27 @@ The preview always reflects the active combination, and a pinned appearance forc
 
 ## AI Provider Setup
 
-To put a frequently used AI preset directly on the popup bar, open **Actions**, expand **AI Tools**,
-and drag the preset between the top-level actions. Its position is saved. To return it to the
-group, drop it onto the **AI Tools** row. Presets moved out of the group still appear in the full
-search palette, and their existing enable switches, aliases, and hotkeys keep working.
+To order a frequently used AI preset on its own, open **Actions**, expand **AI Tools**, and drag
+the preset between the top-level actions. Its position is saved. To return it to the group, drop
+it onto the **AI Tools** row. Presets moved out of the group still appear in the palette, and
+their existing enable switches, aliases, and hotkeys keep working.
 
 The switch next to **AI Tools** in **Actions** hides the group and its remaining commands without
-turning off AI or any presets on the main bar. Right-click the group and choose **Ungroup** to
+turning off AI or any presets moved out of it. Right-click the group and choose **Ungroup** to
 move all its commands out, or use **Remove from Group** on an individual command. An empty group
-disappears from the Actions list and popup. To restore it, right-click a standalone AI command
-and choose **Add to Group → AI Tools**. You can then drag more commands onto or inside the group.
-Hovering over AI Tools opens its commands, and clicking opens their scoped search.
+disappears from the Actions list. To restore it, right-click a standalone AI command and choose
+**Add to Group → AI Tools**. You can then drag more commands onto or inside the group. The palette
+lists the group's commands directly.
 
-Select a preset under **AI → AI Actions** to edit its icon, display name, **Icon/Text** mode,
-keyboard shortcut, search alias, and prompt. Changes save automatically. These settings follow
-the preset whether it is inside AI Tools or on the main popup bar. **Add Custom AI Action** also
-offers these controls before creation, with **Show as → Text** selected by default. They are saved
+Select a preset under **AI → AI Actions** to edit its icon, display name, keyboard shortcut,
+search alias, and prompt. Changes save automatically. These settings follow the preset whether it
+is inside AI Tools or not. **Add Custom AI Action** also offers these controls before creation. They are saved
 when you click **Add Action**, which opens the editor for the new preset. Cancelling discards the
 draft, including its shortcut and alias.
 
 OpenClip includes an AI assistant overlay that processes text selections using local or cloud AI models.
 
-Select **AI** in the sidebar (the first row of the Extensions group) to turn AI Tools on or off and configure your provider:
+Select **AI** in the sidebar (the first row under Actions) to turn AI Tools on or off and configure your provider:
 
 | Provider | Description | Setup Requirements |
 | :--- | :--- | :--- |
@@ -190,8 +178,7 @@ With the Ollama preset, OpenClip asks reasoning models (e.g. Qwen 3.5, DeepSeek-
 
 ### Ask AI from the search palette
 
-Anything you type into the action-search palette (⌥⌘C, or the ⌘ button on the popup bar) that
-matches no action is offered to AI instead of a "No matches" notice:
+Anything you type into the command palette (⌥⌘C) that matches no action is offered to AI instead of a "No matches" notice:
 
 - **Ask AI: “…”** runs your text as an instruction on the selected text — select a paragraph,
   type `rewrite to slovak`. Press **⏎** (or ⌘1) to see the answer in the result card, with a
@@ -199,7 +186,7 @@ matches no action is offered to AI instead of a "No matches" notice:
   selection** the moment it lands instead (a "Replacing…" toast shows meanwhile; if the app can't
   paste, or you've switched apps, the answer is copied).
 - **Save as AI tool** (⌘2) keeps the instruction as a custom AI action and runs it the same way.
-  From then on it appears in the palette by name, in the AI Tools bar, and under
+  From then on it appears in the palette by name, in the AI Tools group, and under
   **Settings › AI › AI Actions**, where opening it renames it, edits its prompt, or deletes it.
 - Your **recent instructions** are palette rows too: type any part of one (`slo` finds
   `rewrite to slovak`) and run it with ⏎ or ⇧⏎ like the Ask AI row. Eight are kept; a saved
@@ -220,10 +207,3 @@ over the selection. ⏎ on an empty field pastes as before.
 
 ### AI Settings Channel
 AI settings are managed through `AIServiceManager` and isolated to ensure security and privacy.
-
-## Actions per page
-
-In Appearance, use the minus/plus stepper to choose 2–24 actions per page (default 6).
-Enable **Fit to width** to let the popup fill the available width instead. This applies to
-the main bar and group bars; turning it off restores your saved count. Wide actions and
-smaller displays may still cause pagination before the chosen count is reached.

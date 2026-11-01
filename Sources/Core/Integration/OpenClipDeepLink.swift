@@ -23,10 +23,6 @@ import Foundation
 public enum IntegrationCommand: String, CaseIterable, Sendable, Equatable {
     /// Bring OpenClip's Settings window to the front.
     case openSettings = "open-settings"
-    /// Temporarily pause the popup (the same pause the menu bar offers).
-    case pause
-    /// Clear a temporary pause.
-    case resume
 }
 
 /// A parsed `openclip://` URL.

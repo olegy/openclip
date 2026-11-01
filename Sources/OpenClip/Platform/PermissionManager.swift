@@ -1,29 +1,34 @@
 // PermissionManager.swift
 // OpenClip
 //
-// Checks and prompts for required macOS Accessibility permissions necessary for text retrieval and event monitoring.
+// Checks and prompts for the macOS permissions OpenClip uses: Accessibility (reading the selection,
+// event monitoring) and Screen Recording (Capture Text).
 import AppKit
 import ApplicationServices
 import Core
 
-/// Centralized manager for macOS system accessibility permissions.
+/// Centralized manager for the macOS permissions OpenClip uses.
 /// Uses a continuous async polling loop (not Timer) to reliably detect
-/// AXIsProcessTrusted changes on the main actor.
+/// permission changes on the main actor.
 @MainActor
 public final class PermissionManager: ObservableObject {
     public static let shared = PermissionManager()
 
     @Published public private(set) var isAccessibilityGranted: Bool = false
+    /// Screen Recording, needed by Capture Text. macOS reports a grant to the running process only
+    /// after a relaunch, and asks the user to quit and reopen the app itself.
+    @Published public private(set) var isScreenRecordingGranted: Bool = false
 
     private var pollingTask: Task<Void, Never>?
 
     private init() {
         self.isAccessibilityGranted = Self.queryAX()
+        self.isScreenRecordingGranted = CGPreflightScreenCaptureAccess()
     }
 
     // MARK: - Public API
 
-    /// Start continuously polling AX status every 0.5 s.
+    /// Start continuously polling permission status every 0.5 s.
     public func startMonitoring() {
         guard pollingTask == nil else { return }
         pollingTask = Task { @MainActor [weak self] in
@@ -47,6 +52,10 @@ public final class PermissionManager: ObservableObject {
             isAccessibilityGranted = current
             NotificationCenter.default.post(name: .openClipAccessibilityChanged, object: current)
         }
+        let screenRecording = CGPreflightScreenCaptureAccess()
+        if isScreenRecordingGranted != screenRecording {
+            isScreenRecordingGranted = screenRecording
+        }
     }
 
     /// Open System Settings → Accessibility and prompt macOS TCC to evaluate the running binary.
@@ -64,6 +73,16 @@ public final class PermissionManager: ObservableObject {
         }
     }
 
+    /// Asks macOS for Screen Recording (adds OpenClip to the list on first request) and opens
+    /// System Settings → Screen Recording.
+    public func requestScreenRecordingPermission() {
+        startMonitoring()
+        _ = CGRequestScreenCaptureAccess()
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     /// Reset TCC permission database entry for OpenClip if macOS TCC is caching a stale signature.
     public func resetTCCAndRelaunch() {
         // Run tccutil asynchronously — never `waitUntilExit` on the main actor. The app relaunches
@@ -72,7 +91,7 @@ public final class PermissionManager: ObservableObject {
             do {
                 _ = try await ShellProcessRunner.run(ShellProcessRunner.Invocation(
                     executableURL: URL(fileURLWithPath: "/usr/bin/tccutil"),
-                    arguments: ["reset", "Accessibility", Bundle.main.bundleIdentifier ?? "com.openclip.OpenClip"],
+                    arguments: ["reset", "Accessibility", Bundle.main.bundleIdentifier ?? "com.olegy.openclip"],
                     environment: [:]
                 ))
             } catch {

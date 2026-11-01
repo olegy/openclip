@@ -61,14 +61,16 @@
 	<string>OpenClip needs to control other apps to run your AppleScript actions and to paste results back into the app you were using.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Ganesh M and OpenClip Contributors. AGPL-3.0 licensed.</string>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
 	<key>SUAutomaticallyUpdate</key>
 	<false/>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://github.com/ganeshmshetty/openclip/releases/latest/download/appcast.xml</string>
+	<string>https://github.com/olegy/openclip/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>JbyKx5LUkYkM+ovsJ1NPDR2W+1ptfdsu6b51KBsKhWo=</string>
+	<string>dFBKKIVeP3Of0PU6uDiPtMReKpBnNNQhZ2trdQBf0Dc=</string>
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
 	<key>UTExportedTypeDeclarations</key>

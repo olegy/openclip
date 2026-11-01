@@ -3,15 +3,15 @@
 //
 // Bridges an `AIActionPreset` into the Action registry so each AI preset surfaces as an
 // individual action in the action-search palette and Preferences → Actions. Presets live under
-// AI Tools by default and can be moved into the main popup bar.
+// AI Tools by default and can be moved to the top level of the Actions list.
 // `AIActionSync` keeps these
 // in step with AIServiceManager's preset list: the title is snapshotted at registration time,
 // while the runnable state and prompt are read live from AIServiceManager at invoke time.
 import Foundation
 import Core
 
-/// Registry action for one AI preset. Bar and palette selections route through the popup's AI
-/// flow rather than `perform`, sharing the same result card as the AI Tools sub-bar.
+/// Registry action for one AI preset. Palette selections route through the popup's AI
+/// flow rather than `perform`, sharing the same result card as every AI run.
 public struct AIAction: ConfigurableAction {
     public let presetID: String
 
@@ -48,9 +48,10 @@ public struct AIAction: ConfigurableAction {
 
     /// Off when AI is switched off wholesale, or when this preset's own toggle in AI settings is
     /// off — the palette and every other surface gate on this, so a disabled preset is offered
-    /// nowhere.
+    /// nowhere. Like every text action, a preset needs text to work on.
     @MainActor
     public func isEnabled(for context: ActionContext) -> Bool {
+        guard !context.selection.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         guard AIServiceManager.shared.isAIEnabled else { return false }
         return preset()?.isEnabled ?? false
     }

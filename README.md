@@ -1,108 +1,65 @@
 <div align="center">
-  <img src="./assets/app-icon.png" alt="OpenClip" width="80" height="80" />
-  <h1>OpenClip</h1>
-  <p>The open-source text action popup for macOS.</p>
-
-  <p>
-    <a href="https://github.com/ganeshmshetty/openclip/releases"><img src="https://img.shields.io/badge/macOS-14.0+-black?style=flat-square&logo=apple&logoColor=white" alt="macOS 14+" /></a>
-    <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL_3.0-blue?style=flat-square" alt="License" /></a>
-    <a href="https://github.com/ganeshmshetty/homebrew-tap"><img src="https://img.shields.io/badge/brew-openclip-ffcc00?style=flat-square&logo=homebrew&logoColor=black" alt="Homebrew" /></a>
-    <a href="https://discord.gg/acYYdzM7jR"><img src="https://img.shields.io/badge/discord-join-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord" /></a>
-  </p>
-
-  <p>
-    <a href="https://github.com/sponsors/ganeshmshetty"><img src="https://img.shields.io/badge/Sponsor-EA4AAA?style=flat-square&logo=githubsponsors&logoColor=white" alt="GitHub Sponsors" /></a>
-    <a href="https://buymeacoffee.com/ganeshmshetty"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?style=flat-square&logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee" /></a>
-    <a href="https://ko-fi.com/ganeshmshetty"><img src="https://img.shields.io/badge/Ko--fi-FF5E5B?style=flat-square&logo=kofi&logoColor=white" alt="Ko-fi" /></a>
-  </p>
-
-  <br />
-
-  <img src="./assets/all.gif" alt="OpenClip in action" width="480" />
+  <img src="./assets/app-icon.png" alt="OpenClip Lite" width="80" height="80" />
+  <h1>OpenClip Lite</h1>
+  <p>A stripped-down, modified build of <a href="https://github.com/ganeshmshetty/openclip">OpenClip</a> for personal use.</p>
 </div>
 
-<br />
+OpenClip Lite keeps only OpenClip's command palette: select text in any app (or leave the
+clipboard as the input), press the palette shortcut, and run an action on it. Everything else —
+features, extensions, runtimes, AI — is the original project's; see the
+[OpenClip repository](https://github.com/ganeshmshetty/openclip) for what it can do.
 
-Select text in any app, and OpenClip pops up with contextual actions — transform text, run shell scripts, trigger shortcuts, evaluate math expressions, or query AI models.
+It is not a fork that tracks upstream: changes from the original are ported by hand, and only
+when they are useful here.
 
-## Installation
+## Differences from OpenClip
 
-### Homebrew (Recommended)
-```bash
-brew install --cask openclip
-```
+- **Palette only.** No selection action bar: nothing reads the selection or appears until the
+  palette shortcut is pressed. The palette and its result card open centered on the screen with
+  the mouse (Spotlight-style).
+- **Palette footer** shows where the text comes from (selection or clipboard, switchable) and the
+  start of that text. Files copied in Finder do not count as clipboard text.
+- **Palette rows** show the action's alias, hotkey and ⌘-number.
+- **A collapsed caret means no selection:** the palette sends no ⌘C then, so editors that copy
+  the whole line (Obsidian, VS Code) fall back to the clipboard.
+- **Capture Text** copies the recognized text and confirms it with a notification. It runs only
+  from its own shortcut, which has no default.
+- **Settings:** no Customize page (theme, color mode and notification size are in General), no
+  App Rules, no "Show as" for actions. General shows the Screen Recording permission that
+  Capture Text needs.
+- **Actions in Settings:** one home per kind of action — AI, Built-in, Custom, Extensions — and a
+  Palette page that lists them all. No action groups and no drag-to-order: pin up to 10 actions to
+  the top of the palette; the rest follow by most recent use.
+- **Menu bar menu** has only Settings and Quit: no Actions submenu and no pause (the
+  `openclip://` URL scheme has no pause either).
+- **Updates** come from this repository's GitHub Releases through Sparkle, never from the
+  original's feed: checked once a day, installed only when you choose to (About → Check for
+  Updates). Extensions are checked once a day too. The version is the original's plus a Lite revision (e.g. `1.8.2-lite.5`).
+- **Bundle ID** is `com.olegy.openclip`, so Lite installs next to the original OpenClip.
 
-### Direct Download
-Download the latest `.dmg` from [Releases](https://github.com/ganeshmshetty/openclip/releases).
+## Building
 
-> **Note:** Requires **Accessibility** permission (`System Settings → Privacy & Security → Accessibility`) to detect selected text without relying on clipboard polling.
-
----
-
-## Features
-
-- **Contextual bar** — Appears instantly near your selection with relevant actions (case transform, search, copy/cut, math, or custom scripts).
-- **Search palette (`⌥⌘C`)** — Press hotkey to fuzzy search your entire action catalog.
-- **Extensions** — Write or install custom extensions in JavaScript, Shell, AppleScript, or URL schemes.
-- **Native & fast** — Written in Swift 6 with strict concurrency; lightweight background footprint.
-- **Optional AI actions** — Run text through local Ollama models, Apple Intelligence, or OpenAI/Anthropic keys.
-- **Privacy-first** — Zero telemetry, no analytics, 100% local execution.
-
----
-
-## Extensions
-
-Extensions are simple folders in `~/.openclip/extensions/`. A basic URL lookup extension only needs an `openclip.json`:
-
-```json
-{
-  "identifier": "com.example.lookup",
-  "name": "Wikipedia Lookup",
-  "actions": [
-    {
-      "title": "Lookup",
-      "icon": "symbol(magnifyingglass)",
-      "type": "url",
-      "url": "https://en.wikipedia.org/wiki/Special:Search?search={query}"
-    }
-  ]
-}
-```
-
-Install community extensions from **Preferences → Extension Store**, or read the [extension docs](docs/developer-guide/index.md).
-
----
-
-## Building from Source
-
-**Prerequisites:** macOS 14+, Xcode 16+, and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
+macOS 14+, Xcode 16+, and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
 
 ```bash
-git clone https://github.com/ganeshmshetty/openclip.git
+git clone https://github.com/olegy/openclip.git
 cd openclip
-
-# Generate Xcode project
-xcodegen generate
-
-# Build and run
-./scripts/dev_run.sh
-
-# Run tests
-./scripts/test.sh
-
-# Package release DMG
-./scripts/package_app.sh
+./scripts/install.sh       # Release build -> /Applications/OpenClip.app (replaces it), then launch
+./scripts/test.sh          # tests
+./scripts/package_app.sh   # Release build -> build/OpenClip.zip + build/OpenClip.dmg
 ```
 
----
+Releases are signed with a free Apple Development certificate and are not notarized. After
+installing one by hand from [Releases](https://github.com/olegy/openclip/releases), clear the
+download quarantine once; updates after that arrive through Sparkle:
 
-## Community & Support
+```bash
+xattr -dr com.apple.quarantine /Applications/OpenClip.app
+```
 
-- **Docs:** [Documentation Hub](docs/index.md)
-- **Discord:** [Join Community](https://discord.gg/acYYdzM7jR)
-- **Issues:** [Report a bug](https://github.com/ganeshmshetty/openclip/issues)
-- **Sponsor:** [GitHub Sponsors](https://github.com/sponsors/ganeshmshetty) · [Buy Me a Coffee](https://buymeacoffee.com/ganeshmshetty) · [Ko-fi](https://ko-fi.com/ganeshmshetty)
+More in [AGENTS.md](AGENTS.md) and the [docs](docs/index.md).
 
 ## License
 
-[AGPL-3.0](LICENSE) © 2026 Ganesh M and OpenClip Contributors. See [NOTICE.md](NOTICE.md).
+[AGPL-3.0](LICENSE). OpenClip © 2026 Ganesh M and OpenClip Contributors; this is a modified
+version of it. See [NOTICE.md](NOTICE.md).

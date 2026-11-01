@@ -3,7 +3,7 @@
 //
 // Data-driven sub-action membership. An action that can be opened "into" (an extension group, the
 // AI Tools launcher, etc.) conforms to SubActionProviding and declares how it resolves its children
-// from a catalog. SubActionResolver is the single entry point the popup bar / palette use; it hides
+// from a catalog. SubActionResolver is the single entry point the palette and Preferences use; it hides
 // protocol lookup from callers. Pure Core — no AppKit/SwiftUI.
 import Foundation
 

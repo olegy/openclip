@@ -33,7 +33,6 @@ public enum Constants {
     public static let symbolSuffix: String = ")"
     public static let imageExtensions: [String] = [".png", ".jpg", ".jpeg", ".icns", ".gif", ".svg"]
     
-    public static let rulesFileURL: URL = URL(fileURLWithPath: ("~/.openclip/rules.json" as NSString).expandingTildeInPath)
     public static let secretsFileURL: URL = URL(fileURLWithPath: ("~/.openclip/secrets.json" as NSString).expandingTildeInPath)
     
     // Extension System Constants
@@ -131,15 +130,6 @@ public enum Constants {
 
     /// Max polls before giving up on the AX web-area text settling.
     public static let webAreaSettleMaxRetries: Int = 6
-
-    /// Throttle interval (seconds) for keyboard selection gestures (Cmd+A, Shift+arrow) to prevent rapid repeated retrievals while holding keys.
-    public static let keyboardSelectionDebounceInterval: TimeInterval = 0.15
-
-    /// Maximum age (seconds) for a monitored selection before it is treated as stale.
-    public static let selectionMaxAge: TimeInterval = 30.0
-
-    /// Default duration (seconds) of holding the mouse button down to trigger the popup.
-    public static let defaultMouseHoldDuration: TimeInterval = 0.3
 
     /// Cap on in-flight synchronous JS evaluations. A CPU-bound synchronous script cannot be
     /// interrupted in modern JavaScriptCore (JSVirtualMachine.invalidate is gone), so each stuck

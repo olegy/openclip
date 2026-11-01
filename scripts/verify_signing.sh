@@ -93,6 +93,9 @@ IS_ADHOC=0
 grep -qE "^CodeDirectory .*flags=.*adhoc" <<<"$REPORT" && IS_ADHOC=1
 TEAM_ID="$(sed -n 's/^TeamIdentifier=\(.*\)$/\1/p' <<<"$REPORT" | head -1)"
 [ "$TEAM_ID" = "not set" ] && TEAM_ID=""
+# Ad-hoc and self-signed builds carry no Team ID, and sign_artifact.sh leaves them unhardened.
+HAS_TEAM=0
+[ -n "$TEAM_ID" ] && HAS_TEAM=1
 
 # ---------------------------------------------------------------------------
 # 1. Structural integrity. --deep so nested bundles are checked too, --strict so
@@ -113,7 +116,11 @@ if [ "$IS_APP" -eq 1 ]; then
     # 2. Hardened runtime on the app itself. This is the "Hardening: Not enabled"
     #    row in Apparency, and the reason notarization used to be impossible.
     # -----------------------------------------------------------------------
-    if grep -qE "^CodeDirectory .*flags=.*runtime" <<<"$REPORT"; then
+    if [ "$HAS_TEAM" -eq 0 ]; then
+        # sign_artifact.sh leaves builds without a Team ID unhardened: library validation would
+        # refuse Core.framework and the app would abort at launch.
+        echo "  · hardened runtime not checked (no Team ID; signed without it)"
+    elif grep -qE "^CodeDirectory .*flags=.*runtime" <<<"$REPORT"; then
         pass "hardened runtime enabled"
     else
         fail "hardened runtime flag missing — notarization will be refused"
@@ -181,7 +188,7 @@ PY
         NESTED_REPORT="$(signature_report "$item")"
         REL="${item#"$TARGET"/}"
 
-        if oc_item_has_code "$item" && ! grep -qE "^CodeDirectory .*flags=.*runtime" <<<"$NESTED_REPORT"; then
+        if [ "$HAS_TEAM" -eq 1 ] && oc_item_has_code "$item" && ! grep -qE "^CodeDirectory .*flags=.*runtime" <<<"$NESTED_REPORT"; then
             fail "$REL is not signed with the hardened runtime"
             NESTED_BAD=$((NESTED_BAD + 1))
         fi
@@ -205,6 +212,8 @@ PY
 
     if [ "$NESTED_TOTAL" -eq 0 ]; then
         fail "found no nested code under $LABEL — wrong path?"
+    elif [ "$NESTED_BAD" -eq 0 ] && [ "$HAS_TEAM" -eq 0 ]; then
+        pass "all $NESTED_TOTAL nested binaries consistently signed"
     elif [ "$NESTED_BAD" -eq 0 ]; then
         pass "all $NESTED_TOTAL nested binaries hardened and consistently signed"
     fi
@@ -298,7 +307,7 @@ fi
 # The hardened runtime and entitlements are properties of the app; a disk image only carries a
 # signature, so its summary must not claim more than was checked.
 if [ "$IS_ADHOC" -eq 1 ] && [ "$IS_APP" -eq 1 ]; then
-    echo "==> $LABEL is a valid ad-hoc build (hardened, entitlements as declared) — not distributable."
+    echo "==> $LABEL is a valid ad-hoc build (entitlements as declared, no hardened runtime) — not distributable."
 elif [ "$IS_ADHOC" -eq 1 ]; then
     echo "==> $LABEL is ad-hoc signed — not distributable."
 else

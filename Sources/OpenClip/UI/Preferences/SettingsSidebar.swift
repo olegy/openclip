@@ -3,125 +3,31 @@
 //
 // The window's table of contents:
 // - Sits directly on the window background (no card, border or shadow).
-// - Top-left traffic lights space, then a translucent capsule search field.
+// - Top-left traffic lights space, then the rows.
 // - Fixed width (~216pt), ~30pt pitch rows.
 // - Every row has a ~20pt rounded-square icon tile with a white glyph on a colored fill.
 // - Selection: subtle translucent rounded highlight (~11% opacity, ~10pt radius), NOT accent color.
-// - Dim, unobtrusive "Actions" group label with extra vertical spacing.
-// - Hidden scroll indicators, no separator lines.
+// - Two groups: the app's own pages, then a dim static "Actions" label over one page per kind of
+//   action (AI, Built-in, Custom, Extensions). Eight rows in all, so there is no search field.
 
 import SwiftUI
 import AppKit
 import Core
 
-extension SettingKey where Value == Bool {
-    static var preferencesActionsSectionExpanded: SettingKey<Bool> {
-        SettingKey<Bool>("preferencesSidebar.actionsExpanded", defaultValue: true)
-    }
-
-    static var preferencesInstalledSectionExpanded: SettingKey<Bool> {
-        SettingKey<Bool>("preferencesSidebar.installedExpanded", defaultValue: true)
-    }
-}
-
 // MARK: - Rows
 
-/// One sidebar row, resolved to strings so the filter can run over it without touching the models.
+/// One sidebar row.
 struct SettingsSidebarRow: Identifiable {
-    enum Tile {
-        case symbol(String, tint: Color)
-        case icon(ActionIcon, tint: Color)
-        case bare(ActionIcon)
-    }
-
     let page: SettingsPage
     let title: String
-    let keywords: [String]
-    let tile: Tile
     let isDisabled: Bool
 
     var id: String { page.id }
 
-    init(page: SettingsPage, title: String, keywords: [String] = [], tile: Tile, isDisabled: Bool = false) {
+    init(page: SettingsPage, isDisabled: Bool = false) {
         self.page = page
-        self.title = title
-        self.keywords = keywords
-        self.tile = tile
+        self.title = page.staticTitle ?? page.id
         self.isDisabled = isDisabled
-    }
-
-    /// A system page row: title, glyph and search terms come from the page itself.
-    init(systemPage page: SettingsPage, isDisabled: Bool = false) {
-        self.init(
-            page: page,
-            title: page.staticTitle ?? page.id,
-            keywords: page.searchKeywords,
-            tile: .symbol(page.systemImage, tint: SettingsDesignTokens.iconTileColor(for: page)),
-            isDisabled: isDisabled
-        )
-    }
-
-    /// Whether the row answers `query`. Every word of the query has to appear somewhere in the
-    /// title or the keywords, so "api key" finds AI and "jwt verify" finds the JWT extension.
-    func matches(_ query: String) -> Bool {
-        let words = Self.words(in: query)
-        guard !words.isEmpty else { return true }
-        let haystack = ([title] + keywords).map { $0.lowercased() }
-        return words.allSatisfy { word in haystack.contains { $0.contains(word) } }
-    }
-
-    static func words(in query: String) -> [String] {
-        query.lowercased()
-            .split(whereSeparator: { $0.isWhitespace })
-            .map(String.init)
-            .filter { !$0.isEmpty }
-    }
-}
-
-/// The order of the sidebar's second group: what OpenClip ships first, then what the user
-/// installed. Inside a rank the rows read alphabetically, so a name is still where you expect it.
-enum SettingsSidebarOrder {
-    /// Lower sorts first. AI leads because it is the headline feature; the built-in actions
-    /// follow; the user's own actions close out what came with the app or was written here; and
-    /// installed extensions come last, because they are the part that changes.
-    static func rank(of page: SettingsPage) -> Int {
-        switch page {
-        case .ai: return 0
-        case .builtinAction: return 1
-        case .customActions: return 2
-        case .extensionPackage: return 3
-        default: return 4
-        }
-    }
-
-    /// Whether a row is a package the user installed, which is where the second gap goes: what
-    /// OpenClip ships reads as one block, what was installed as another.
-    static func isInstalledExtension(_ page: SettingsPage) -> Bool {
-        if case .extensionPackage = page { return true }
-        return false
-    }
-
-    /// The second group cut in two at that line, each half still in `sorted` order.
-    static func split(
-        _ rows: [SettingsSidebarRow]
-    ) -> (bundled: [SettingsSidebarRow], installed: [SettingsSidebarRow]) {
-        (rows.filter { !isInstalledExtension($0.page) }, rows.filter { isInstalledExtension($0.page) })
-    }
-
-    static func sorted(_ rows: [SettingsSidebarRow]) -> [SettingsSidebarRow] {
-        rows.sorted { left, right in
-            let leftRank = rank(of: left.page)
-            let rightRank = rank(of: right.page)
-            if leftRank != rightRank { return leftRank < rightRank }
-            return left.title.localizedStandardCompare(right.title) == .orderedAscending
-        }
-    }
-}
-
-enum SettingsSidebarFilter {
-    static func filter(_ rows: [SettingsSidebarRow], query: String) -> [SettingsSidebarRow] {
-        guard !SettingsSidebarRow.words(in: query).isEmpty else { return rows }
-        return rows.filter { $0.matches(query) }
     }
 }
 
@@ -129,9 +35,12 @@ enum SettingsSidebarFilter {
 enum SettingsTint {
     static let general = Color(nsColor: .systemGray)
     static let appearance = Color(red: 0.95, green: 0.35, blue: 0.60)
-    static let customize = Color(red: 0.65, green: 0.35, blue: 0.95)
-    static let shortcuts = Color(red: 0.68, green: 0.35, blue: 0.98)
-    static let appRules = Color(red: 0.98, green: 0.52, blue: 0.12)
+    static let palette = Color(red: 0.65, green: 0.35, blue: 0.95)
+    static let orange = Color(red: 0.98, green: 0.52, blue: 0.12)
+    static let ai = Color(red: 0.36, green: 0.40, blue: 0.96)
+    static let builtin = orange
+    static let custom = Color(red: 0.93, green: 0.30, blue: 0.45)
+    static let extensions = Color(red: 0.10, green: 0.68, blue: 0.62)
     static let store = Color(red: 0.05, green: 0.52, blue: 0.98)
     static let about = Color(red: 0.20, green: 0.78, blue: 0.42)
     static let neutral = Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
@@ -249,165 +158,46 @@ private struct SettingsTileBackground: View {
 @MainActor
 struct SettingsSidebar: View {
     @Binding var selection: SettingsPage?
-    @Binding var query: String
     let systemRows: [SettingsSidebarRow]
-    let extensionRows: [SettingsSidebarRow]
-    @Setting(SettingKey.preferencesActionsSectionExpanded) private var actionsSectionExpanded
-    @Setting(SettingKey.preferencesInstalledSectionExpanded) private var installedSectionExpanded
+    let actionRows: [SettingsSidebarRow]
     @State private var hoveredRowID: String? = nil
 
-    private var filteredSystemRows: [SettingsSidebarRow] {
-        SettingsSidebarFilter.filter(systemRows, query: query)
-    }
-
-    private var filteredExtensionRows: [SettingsSidebarRow] {
-        SettingsSidebarFilter.filter(extensionRows, query: query)
-    }
-
-    private var hasResults: Bool {
-        !filteredSystemRows.isEmpty || !filteredExtensionRows.isEmpty
-    }
-
-    private var isFiltering: Bool {
-        !SettingsSidebarRow.words(in: query).isEmpty
-    }
-
     var body: some View {
-        ScrollViewReader { proxy in
-            VStack(spacing: 0) {
-                // Top area: space for traffic lights + capsule search field
-                VStack(spacing: 12) {
-                    Color.clear
-                        .frame(height: 38)
+        VStack(spacing: 0) {
+            // Space for the traffic lights.
+            Color.clear
+                .frame(height: 46)
 
-                    searchField
-                }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 8)
-
-                // Scrollable rows with hidden indicators and no separator lines
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        if !filteredSystemRows.isEmpty {
-                            ForEach(filteredSystemRows) { row in
-                                rowView(row)
-                                    .id(row.page.id)
-                            }
-                        }
-
-                        let (bundled, installed) = SettingsSidebarOrder.split(filteredExtensionRows)
-                        let actionsExpanded = actionsSectionExpanded || isFiltering
-                        let installedExpanded = installedSectionExpanded || isFiltering
-
-                        if !bundled.isEmpty {
-                            VStack(alignment: .leading, spacing: 2) {
-                                sectionHeader("Actions", isExpanded: actionsExpanded) {
-                                    actionsSectionExpanded.toggle()
-                                }
-
-                                if actionsExpanded {
-                                    ForEach(bundled) { row in
-                                        rowView(row)
-                                            .id(row.page.id)
-                                    }
-                                }
-                            }
-                        }
-
-                        if !installed.isEmpty {
-                            VStack(alignment: .leading, spacing: 2) {
-                                sectionHeader("Installed", isExpanded: installedExpanded) {
-                                    installedSectionExpanded.toggle()
-                                }
-
-                                if installedExpanded {
-                                    ForEach(installed) { row in
-                                        rowView(row)
-                                            .id(row.page.id)
-                                    }
-                                }
-                            }
-                        }
-
-                        if !hasResults {
-                            Text(String(localized: "No Results"))
-                                .font(.callout)
-                                .foregroundStyle(SettingsDesignTokens.secondaryText)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.vertical, 24)
-                        }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(systemRows) { row in
+                        rowView(row)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
+
+                    sectionHeader("Actions")
+
+                    ForEach(actionRows) { row in
+                        rowView(row)
+                    }
                 }
-                .scrollIndicators(.hidden)
-                .scrollContentBackground(.hidden)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
             }
-            .frame(width: SettingsDesignTokens.sidebarWidth)
-            .background(Color.clear)
-            .onAppear { scrollSelectionIntoView(proxy, animated: false) }
-            .onChange(of: query) { _, newValue in
-                if newValue.isEmpty { scrollSelectionIntoView(proxy, animated: true) }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .openClipPreferencesWindowDidShow)) { _ in
-                scrollSelectionIntoView(proxy, animated: false)
-            }
+            .scrollIndicators(.hidden)
+            .scrollContentBackground(.hidden)
         }
+        .frame(width: SettingsDesignTokens.sidebarWidth)
+        .background(Color.clear)
     }
 
-    private func sectionHeader(
-        _ title: LocalizedStringKey,
-        isExpanded: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .bold))
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    .frame(width: 10)
-
-                Text(title)
-                    .font(.system(size: 11, weight: .semibold))
-
-                Spacer(minLength: 0)
-            }
+    private func sectionHeader(_ title: LocalizedStringKey) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(SettingsDesignTokens.secondaryText.opacity(0.7))
-            .contentShape(Rectangle())
             .padding(.leading, 10)
             .padding(.top, SettingsDesignTokens.sidebarGroupSpacing)
             .padding(.bottom, 4)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(SettingsDesignTokens.sidebarSearchPlaceholder)
-                .padding(.leading, 8)
-
-            TextField(String(localized: "Search"), text: $query)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .foregroundStyle(SettingsDesignTokens.primaryText)
-
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(SettingsDesignTokens.sidebarSearchPlaceholder)
-                }
-                .buttonStyle(.plain)
-                .padding(.trailing, 8)
-            }
-        }
-        .frame(height: 28)
-        .settingsGlassCapsule(interactive: false)
+            .accessibilityAddTraits(.isHeader)
     }
 
     private func rowView(_ row: SettingsSidebarRow) -> some View {
@@ -418,16 +208,7 @@ struct SettingsSidebar: View {
             selection = row.page
         } label: {
             HStack(spacing: 10) {
-                switch row.tile {
-                case .symbol(let name, let tint):
-                    SettingsIconTile(systemImage: name, tint: tint, size: SettingsDesignTokens.iconTileSize)
-                case .icon(let icon, let tint):
-                    ExtensionIconTile(icon: icon, tint: tint, size: SettingsDesignTokens.iconTileSize)
-                case .bare(let icon):
-                    ActionIconView(icon: icon, size: 14)
-                        .foregroundStyle(isSelected ? SettingsDesignTokens.primaryText : SettingsDesignTokens.secondaryText)
-                        .frame(width: SettingsDesignTokens.iconTileSize, height: SettingsDesignTokens.iconTileSize, alignment: .center)
-                }
+                SettingsIconTile(systemImage: row.page.systemImage, tint: row.page.tint, size: SettingsDesignTokens.iconTileSize)
 
                 Text(row.title)
                     .font(.system(size: 13, weight: .regular))
@@ -457,15 +238,5 @@ struct SettingsSidebar: View {
         }
         .opacity(row.isDisabled ? 0.45 : 1.0)
         .saturation(row.isDisabled ? 0.5 : 1.0)
-    }
-
-    private func scrollSelectionIntoView(_ proxy: ScrollViewProxy, animated: Bool) {
-        guard let page = selection else { return }
-        let scroll = { proxy.scrollTo(page.id) }
-        if animated {
-            withAnimation(.easeInOut(duration: 0.18)) { scroll() }
-        } else {
-            DispatchQueue.main.async { scroll() }
-        }
     }
 }

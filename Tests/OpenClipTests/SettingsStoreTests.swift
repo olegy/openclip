@@ -36,11 +36,26 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(ExtensionUpdateManager(settings: settings).automaticallyUpdatesExtensions)
     }
 
+    /// Automatic extension checks hit the store at most once a day, across relaunches.
+    @MainActor
+    func testExtensionAutomaticCheckRunsAtMostDaily() {
+        let settings = MemorySettingsStore()
+        let manager = ExtensionUpdateManager(settings: settings)
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        XCTAssertEqual(manager.secondsUntilNextAutomaticCheck(now: now), 0, "never checked: due now")
+
+        settings.set(.extensionsLastUpdateCheck, value: now.timeIntervalSince1970 - 60 * 60)
+        XCTAssertEqual(manager.secondsUntilNextAutomaticCheck(now: now), 23 * 60 * 60)
+
+        settings.set(.extensionsLastUpdateCheck, value: now.timeIntervalSince1970 - 25 * 60 * 60)
+        XCTAssertEqual(manager.secondsUntilNextAutomaticCheck(now: now), 0)
+    }
+
     @MainActor
     func testTypedSettingReadWrite() {
-        XCTAssertEqual(store.get(.actionOrder), [])
-        store.set(.actionOrder, value: ["builtin.copy", "builtin.paste"])
-        XCTAssertEqual(store.get(.actionOrder), ["builtin.copy", "builtin.paste"])
+        XCTAssertEqual(store.get(.pinnedActionIDs), [])
+        store.set(.pinnedActionIDs, value: ["builtin.copy", "builtin.paste"])
+        XCTAssertEqual(store.get(.pinnedActionIDs), ["builtin.copy", "builtin.paste"])
     }
 
     @MainActor
@@ -48,23 +63,6 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(store.get(.disabledActionIDs).isEmpty)
         store.set(.disabledActionIDs, value: ["builtin.search"])
         XCTAssertEqual(store.get(.disabledActionIDs), ["builtin.search"])
-    }
-
-    @MainActor
-    func testContextualPillPositionDefaultsToAuto() {
-        XCTAssertEqual(store.get(.contextualPillPosition), "auto")
-        store.set(.contextualPillPosition, value: "right")
-        XCTAssertEqual(store.get(.contextualPillPosition), "right")
-    }
-
-    func testContextualPillAutoFollowsHorizontalAlignment() {
-        XCTAssertFalse(ContextualPillPosition.auto.isTrailing(for: .left))
-        XCTAssertFalse(ContextualPillPosition.auto.isTrailing(for: .center))
-        XCTAssertTrue(ContextualPillPosition.auto.isTrailing(for: .right))
-        for alignment in PopupBarAlignment.allCases {
-            XCTAssertFalse(ContextualPillPosition.left.isTrailing(for: alignment))
-            XCTAssertTrue(ContextualPillPosition.right.isTrailing(for: alignment))
-        }
     }
 
     @MainActor
@@ -85,20 +83,6 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.get(.popupScale), 3)
         store.set(.popupScale, value: 4)
         XCTAssertEqual(store.get(.popupScale), 4)
-    }
-
-    @MainActor
-    func testPopupBarWidthReadWrite() {
-        XCTAssertEqual(store.get(.popupBarWidth), 3)
-        store.set(.popupBarWidth, value: 4)
-        XCTAssertEqual(store.get(.popupBarWidth), 4)
-    }
-
-    @MainActor
-    func testPopupPageSizeReadWrite() {
-        XCTAssertEqual(store.get(.popupPageSize), 6)
-        store.set(.popupPageSize, value: 5)
-        XCTAssertEqual(store.get(.popupPageSize), 5)
     }
 
     @MainActor
@@ -133,8 +117,8 @@ final class SettingsStoreTests: XCTestCase {
     @MainActor
     func testOptionalDataKeyWithUnexpectedStoredTypeReturnsDefault() {
         // A non-data value stored under a Data? key must not crash — fall back to nil.
-        userDefaults.set("not-data", forKey: SettingKey.actionGroups.name)
-        XCTAssertNil(store.get(.actionGroups))
+        userDefaults.set("not-data", forKey: SettingKey.customActions.name)
+        XCTAssertNil(store.get(.customActions))
 
         userDefaults.set(42, forKey: SettingKey.actionCustomizations.name)
         XCTAssertNil(store.get(.actionCustomizations))
@@ -143,7 +127,7 @@ final class SettingsStoreTests: XCTestCase {
     @MainActor
     func testOptionalDataKeyRoundTrip() {
         // Unset key reads back the default (nil).
-        XCTAssertNil(store.get(.actionGroups))
+        XCTAssertNil(store.get(.customActions))
 
         let payload = "hello".data(using: .utf8)
         store.set(.actionCustomizations, value: payload)

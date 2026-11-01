@@ -7,7 +7,7 @@
 // survive reconciliation, while other presets stay under the `builtin.aiTools` launcher.
 // Reconciles the registered set whenever the preset list changes; the title snapshot on
 // `AIAction` is refreshed by re-registering on any content change, and a changed *order* is
-// re-registered from scratch so the catalog (palette, AI sub-bar) follows the user's ordering.
+// re-registered from scratch so the catalog (palette, Preferences) follows the user's ordering.
 import Foundation
 import Core
 
@@ -17,7 +17,7 @@ public final class AIActionSync {
 
     private let coordinator = ActionCoordinator.shared
     /// The preset ids currently registered, in the order they were registered. Order matters:
-    /// the catalog position of the AI actions (and so the palette / AI sub-bar order) follows it.
+    /// the catalog position of the AI actions (and so the palette order) follows it.
     private var registeredOrder: [String] = []
     private var lastFingerprint: [String] = []
     private var observer: NSObjectProtocol?

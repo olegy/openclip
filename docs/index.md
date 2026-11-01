@@ -1,6 +1,6 @@
 # OpenClip Technical Documentation
 
-Welcome to the **OpenClip** technical documentation hub. OpenClip is a lightweight, high-performance macOS floating popup utility written in Swift (macOS 14.0+). It intercepts selected text across any application, presents contextual text manipulation actions (copy, cut, paste, definition lookups, web searches, custom scripts, and extensions), and executes platform side-effects seamlessly.
+Welcome to the **OpenClip** technical documentation hub. OpenClip is a lightweight, high-performance macOS floating popup utility written in Swift (macOS 14.0+). OpenClip Lite is the palette-only variant: a global shortcut reads the selected text (or falls back to the clipboard) and opens a searchable command palette of actions (copy, cut, paste, definition lookups, web searches, custom scripts, and extensions), then executes their platform side-effects.
 
 ---
 
@@ -15,7 +15,7 @@ Welcome to the **OpenClip** technical documentation hub. OpenClip is a lightweig
 
 1. **Clone the Repository:**
  ```bash
- git clone https://github.com/openclip/openclip.git
+ git clone https://github.com/olegy/openclip.git
  cd openclip
  ```
 
@@ -36,7 +36,7 @@ Welcome to the **OpenClip** technical documentation hub. OpenClip is a lightweig
  ```
 
 5. **Grant Accessibility Permissions:**
- OpenClip relies on macOS Accessibility APIs to detect text selections without modifying system clipboard contents during monitoring. Grant permission in **System Settings > Privacy & Security > Accessibility**.
+ OpenClip relies on macOS Accessibility APIs to read the selection when the palette shortcut is pressed. Grant permission in **System Settings > Privacy & Security > Accessibility**.
 
 ---
 
@@ -47,8 +47,8 @@ Welcome to the **OpenClip** technical documentation hub. OpenClip is a lightweig
 - [Known Debt & Current-State Realities](architecture/known-debt.md) — `UserDefaults` → `SettingsStore` migration, singleton wiring, latent issues.
 - [Directory Structure](architecture/directory-structure.md) — Annotated per-file source tree.
 - [Action Coordinator & Registry](architecture/action-coordinator.md) — Central wiring, callback mechanics, and ordering policy.
-- [Text Selection Subsystem](architecture/text-selection.md) — Selection detection, the gate/resolver/strategy retrieval model, and non-destructive selection handling.
-- [Popup Panel & Positioning Math](architecture/popup-window.md) — `PopupPanel`, static layout math in `PopupPositioner`, and window lifecycle management.
+- [Text Selection Subsystem](architecture/text-selection.md) — On-demand selection read at hotkey time, the gate/resolver/strategy retrieval model, and the clipboard fallback.
+- [Popup Panel & Placement](architecture/popup-window.md) — `PopupPanel`, the palette/result-card window, `PopupPositioner.spotlightFrame`, and window lifecycle.
 - [Logging](logging.md) — the single `Log` surface, category table, and per-subsystem filtering workflow.
 - [DMG Installer](dmg.md) — the styled disk image: HTML-rendered background, Retina TIFF, and the Finder layout contract.
 
@@ -58,7 +58,7 @@ Welcome to the **OpenClip** technical documentation hub. OpenClip is a lightweig
 - [Extension Package Format](developer-guide/package-format.md) — `.openclipext` bundle structure, `manifest.json` schema, and options definitions.
 - [Standalone Snippet Parsing](developer-guide/snippets.md) — Pure header parsing via `OpenClipSnippetParser`.
 - [Integration & Automation API](developer-guide/integration-api.md) — The inbound `openclip://` contract: install and command routes, and what is not yet exposed.
-- [Code Signing, Hardened Runtime & Notarization](developer-guide/signing-and-notarization.md) — Ad-hoc vs Developer ID builds, the entitlements OpenClip grants and refuses, the sign → notarize → staple pipeline, and the checks that gate a release.
+- [Code Signing, Hardened Runtime & Releases](developer-guide/signing-and-notarization.md) — Ad-hoc vs Apple Development builds, the entitlements OpenClip grants and refuses, and how `release.sh` publishes a Sparkle update.
 
 ### Action Execution Runtimes
 - [AppleScript Runtime](runtimes/applescript.md) — `AppleScriptAction` execution, variable injection, and output handling.
@@ -70,9 +70,8 @@ Welcome to the **OpenClip** technical documentation hub. OpenClip is a lightweig
 - [Installation & Onboarding](user-guide/installation.md) — Installing OpenClip, Accessibility permissions setup, and first-launch workflow.
 - [Preferences & Customization](user-guide/preferences.md) — Customizing action titles, table icons, ordering, and AI provider setup.
 - [Managing Extensions & Custom Actions](user-guide/managing-extensions.md) — Installing remote and local extensions and script snippet actions.
-- [App-Specific Policy Rules](user-guide/app-rules.md) — Configuring application-level overrides via `AppRule` and `rules.json`.
 
-The app follows the macOS system language. English is the source locale; Simplified Chinese is bundled in `Sources/OpenClip/Resources/Localizable.xcstrings`.
+The app follows the macOS system language. English is the source locale; Simplified Chinese, Traditional Chinese, French, and Japanese are bundled in `Sources/OpenClip/Resources/Localizable.xcstrings`.
 
 ---
 

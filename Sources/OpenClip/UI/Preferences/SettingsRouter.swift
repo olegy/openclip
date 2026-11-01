@@ -19,76 +19,76 @@ import Core
 
 /// Everything the Settings window can show.
 ///
-/// The first group are sidebar rows. The second are pages reached from a sidebar page and shown in
-/// the same column with the toolbar's back arrow as the way out.
+/// The first two groups are sidebar rows: the app's own pages, then one page per kind of action
+/// under the sidebar's Actions heading. Every action has exactly one home among those four, where
+/// it is edited; Palette only lists them. The last group are pages reached from a sidebar page and
+/// shown in the same column with the toolbar's back arrow as the way out.
 public enum SettingsPage: Hashable, Identifiable, Sendable {
     // Sidebar — OpenClip
     case general
-    case appearance
-    /// The popup bar's layout: the order of everything on it, and custom groups. Nothing else —
-    /// every action's own settings live on the action's page.
-    case customize
-    case shortcuts
-    case appRules
+    /// Every action the palette can show: what is pinned to its top and what is switched on.
+    /// Nothing is edited here — a row opens the action's own page.
+    case palette
     case store
     case about
 
-    // Sidebar — the second group. AI first, then every built-in action, every installed
-    /// extension and the user's custom actions, one row each, by name.
+    // Sidebar — Actions: where each kind of action lives.
+    /// The AI provider and the AI actions.
     case ai
-    case extensionPackage(id: String)
-    /// A built-in action's settings (Copy, Search, Calculate, …), as its own sidebar row.
-    case builtinAction(id: String)
-    /// The user's own Open URL / Text Snippet / Shell Script actions.
+    /// The actions OpenClip ships (Copy, Search, Calculate, …).
+    case builtinActions
+    /// The user's own Open URL / Text Snippet / Shell Script / JavaScript actions.
     case customActions
+    /// The installed extension packages.
+    case extensions
 
     // Pages reached from a sidebar page.
-    /// One action's settings, or one group's when the id names a group.
+    /// One action's settings.
     case action(id: String)
+    /// One installed extension package, reached from Extensions.
+    case extensionPackage(id: String)
     case newCustomAction(kind: String? = nil)
-    case newGroup(memberIDs: [String])
     /// The icon chooser. It writes to the binding held in `SettingsRouter.iconTarget`; the token
     /// only keeps two consecutive choosers distinct in the path.
     case iconPicker(token: Int)
     case aiPreset(id: String)
     case aiNewPreset
-    case addApplication
 
     public var id: String {
         switch self {
         case .general: return "general"
-        case .appearance: return "appearance"
-        case .customize: return "customize"
-        case .shortcuts: return "shortcuts"
-        case .appRules: return "appRules"
+        case .palette: return "palette"
         case .store: return "store"
         case .about: return "about"
         case .ai: return "ai"
-        case .extensionPackage(let id): return "extension:\(id)"
-        case .builtinAction(let id): return "builtin:\(id)"
+        case .builtinActions: return "builtinActions"
         case .customActions: return "customActions"
+        case .extensions: return "extensions"
         case .action(let id): return "action:\(id)"
+        case .extensionPackage(let id): return "extension:\(id)"
         case .newCustomAction(let kind): return "newCustomAction:\(kind ?? "")"
-        case .newGroup: return "newGroup"
         case .iconPicker(let token): return "iconPicker:\(token)"
         case .aiPreset(let id): return "aiPreset:\(id)"
         case .aiNewPreset: return "aiNewPreset"
-        case .addApplication: return "addApplication"
         }
     }
 
     /// The sidebar's first group, in order.
     public static let systemPages: [SettingsPage] = [
-        .general, .appearance, .customize, .appRules, .store, .about
+        .general, .palette, .store, .about
+    ]
+
+    /// The sidebar's Actions group, in order.
+    public static let actionPages: [SettingsPage] = [
+        .ai, .builtinActions, .customActions, .extensions
     ]
 
     /// True for pages the sidebar lists; false for pages reached from one of them.
     public var isSidebarPage: Bool {
         switch self {
-        case .general, .appearance, .customize, .shortcuts, .appRules, .store, .about, .ai, .extensionPackage,
-             .builtinAction, .customActions:
+        case .general, .palette, .store, .about, .ai, .builtinActions, .customActions, .extensions:
             return true
-        case .action, .newCustomAction, .newGroup, .iconPicker, .aiPreset, .aiNewPreset, .addApplication:
+        case .action, .extensionPackage, .newCustomAction, .iconPicker, .aiPreset, .aiNewPreset:
             return false
         }
     }
@@ -98,73 +98,42 @@ public enum SettingsPage: Hashable, Identifiable, Sendable {
     public var staticTitle: String? {
         switch self {
         case .general: return String(localized: "General")
-        case .appearance: return String(localized: "Customize")
-        case .customize: return String(localized: "Actions")
-        case .shortcuts: return String(localized: "Shortcuts")
-        case .appRules: return String(localized: "App Rules")
+        case .palette: return String(localized: "Palette")
         case .store: return String(localized: "Store")
         case .about: return String(localized: "About")
         case .ai: return String(localized: "AI")
+        case .builtinActions: return String(localized: "Built-in")
+        case .customActions: return String(localized: "Custom")
+        case .extensions: return String(localized: "Extensions")
         case .newCustomAction: return String(localized: "New Custom Action")
-        case .newGroup: return String(localized: "New Group")
         case .iconPicker: return String(localized: "Choose Icon")
         case .aiNewPreset: return String(localized: "New AI Action")
-        case .addApplication: return String(localized: "Add Application")
-        case .customActions: return String(localized: "Custom Actions")
-        case .extensionPackage, .builtinAction, .action, .aiPreset: return nil
+        case .extensionPackage, .action, .aiPreset: return nil
         }
     }
 
-    /// Sidebar glyph for the system pages.
+    /// Sidebar glyph.
     var systemImage: String {
         switch self {
         case .general: return "gearshape.fill"
-        case .appearance: return "slider.horizontal.3"
-        case .customize: return "square.stack.3d.up.fill"
-        case .shortcuts: return "command"
-        case .appRules: return "shield.checkered"
+        case .palette: return "command"
         case .store: return "archivebox.fill"
         case .about: return "info.circle.fill"
         case .ai: return "sparkle"
-        case .extensionPackage: return "puzzlepiece.extension.fill"
-        case .builtinAction: return "bolt.fill"
-        case .customActions: return "plus"
+        case .builtinActions: return "bolt.fill"
+        case .customActions: return "hammer.fill"
+        case .extensions: return "puzzlepiece.extension.fill"
         case .action: return "slider.horizontal.3"
+        case .extensionPackage: return "puzzlepiece.extension.fill"
         case .newCustomAction: return "plus.circle.fill"
-        case .newGroup: return "folder.fill.badge.plus"
         case .iconPicker: return "photo.on.rectangle"
         case .aiPreset, .aiNewPreset: return "text.bubble.fill"
-        case .addApplication: return "app.badge.checkmark"
         }
     }
 
-    /// Sidebar tile colour. The app's own settings each wear a fixed, recognisable colour; a page
-    /// that belongs to an action or an extension is drawn as a plain glyph instead. See `SettingsTint`.
+    /// Sidebar tile colour. See `SettingsTint`.
     var tint: Color {
         SettingsDesignTokens.iconTileColor(for: self)
-    }
-
-    /// Terms the sidebar search matches besides the title, so "hotkey" finds Shortcuts and
-    /// "api key" finds AI. Extension rows add their own keywords from the manifest.
-    var searchKeywords: [String] {
-        switch self {
-        case .general: return ["startup", "launch", "login", "menu bar", "trigger", "hotkey", "permission", "accessibility", "paste", "copy", "preview"]
-        case .appearance: return ["theme", "dark", "light", "glass", "popup", "preview", "customize", "behavior", "scale", "position"]
-        case .customize: return ["actions", "popup bar", "order", "reorder", "arrange", "group", "groups", "layout", "install", "shortcuts", "hotkey", "keyboard", "alias", "shortcut", "key", "binding"]
-        case .shortcuts: return ["hotkey", "keyboard", "alias", "shortcut", "key", "binding"]
-        case .appRules: return ["apps", "exclude", "allow", "block", "rules", "disable", "per-app"]
-        case .store: return ["extensions", "clips", "install", "catalog", "browse", "download"]
-        case .about: return ["version", "update", "licence", "license", "logs", "diagnostics", "github"]
-        case .ai:
-            var keywords = ["model", "api key", "prompt", "openai", "claude", "gemini", "ollama", "cli", "local", "cloud", "rewrite", "summarize"]
-            if AppleIntelligenceAvailability.isSupported {
-                keywords.append("apple intelligence")
-            }
-            return keywords
-        case .customActions: return ["custom", "snippet", "script", "shell", "url", "open url", "text snippet", "my actions"]
-        case .extensionPackage, .builtinAction, .action, .newCustomAction, .newGroup, .iconPicker, .aiPreset, .aiNewPreset, .addApplication:
-            return []
-        }
     }
 }
 

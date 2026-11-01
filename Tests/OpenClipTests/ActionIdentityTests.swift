@@ -34,11 +34,4 @@ final class ActionIdentityTests: XCTestCase {
         XCTAssertFalse(ActionIdentity.isBindable(launcher))
     }
 
-    func testCompletionPseudoActionIsNotBindable() {
-        let completion = StubAction(
-            id: "builtin.completion",
-            chrome: ActionChrome(popupBehavior: .provideCompletions)
-        )
-        XCTAssertFalse(ActionIdentity.isBindable(completion))
-    }
 }

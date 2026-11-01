@@ -194,14 +194,10 @@ final class ExtensionManagerTests: XCTestCase {
 
         await manager.loadExtensions(from: tempDir)
         let actionID = try XCTUnwrap(manager.loadedActions.first?.id)
-        store.set(.actionOrder, value: [actionID, "other.action"])
 
-        // Reload with the same extension still present: the ID is retained, so its .actionOrder
-        // entry must survive instead of being pruned by an unregister-then-register cycle.
+        // Reload with the same extension still present: the ID is retained.
         await manager.loadExtensions(from: tempDir)
 
-        XCTAssertTrue(store.get(.actionOrder).contains(actionID),
-                      "reload must preserve .actionOrder for a retained action ID")
         XCTAssertTrue(registry.actions.contains { $0.id == actionID },
                       "retained action must remain registered after reload")
     }
@@ -370,12 +366,9 @@ final class ExtensionManagerTests: XCTestCase {
         let actionID = try XCTUnwrap(installed.first?.id)
         XCTAssertTrue(registry.actions.contains { $0.id == actionID }, "onRegister must register the installed action")
 
-        store.set(.actionOrder, value: [actionID, "other.action"])
-
         try await manager.uninstallExtension(actionID: actionID, targetDir: tempDir)
 
         XCTAssertTrue(writer.cleared.contains("\(actionID):apiKey"), "optionWriter must clear configured options on uninstall")
-        XCTAssertFalse(store.get(.actionOrder).contains(actionID), "actionOrder must be pruned of uninstalled actionID")
         XCTAssertFalse(registry.actions.contains { $0.id == actionID }, "onUnregister must unregister the action")
     }
 

@@ -15,60 +15,6 @@ final class BuiltinActionsTests: XCTestCase {
     }
     
     @MainActor
-    func testCopyAction() async throws {
-        let action = CopyAction()
-        let context = createMockContext(with: "test string")
-        
-        XCTAssertTrue(action.isEnabled(for: context))
-        
-        let result = try await action.perform(context)
-        if case .copy(let text) = result {
-            XCTAssertEqual(text, "test string")
-        } else {
-            XCTFail("Expected .copy result")
-        }
-    }
-
-    @MainActor
-    func testCopyActionWithRichText() async throws {
-        let action = CopyAction()
-        let selection = SelectionContext(
-            text: "test string",
-            sourceApp: AppIdentity(bundleIdentifier: "com.apple.Safari", localizedName: "Safari"),
-            cursorPosition: .zero,
-            timestamp: Date(),
-            appPolicy: .default,
-            html: "<b>test string</b>",
-            rtf: "{\\rtf1 test string}"
-        )
-        let context = ActionContext(selection: selection)
-        let result = try await action.perform(context)
-        if case .copyContent(let payload) = result {
-            XCTAssertEqual(payload.plainText, "test string")
-            XCTAssertEqual(payload.html, "<b>test string</b>")
-            XCTAssertEqual(payload.rtf, "{\\rtf1 test string}")
-        } else {
-            XCTFail("Expected .copyContent result when HTML/RTF present")
-        }
-    }
-    
-    @MainActor
-    func testPasteAction() async throws {
-        let action = PasteAction()
-        let context = createMockContext(with: "test string")
-        
-        XCTAssertTrue(action.isEnabled(for: context))
-        
-        // We just test perform logic here.
-        let result = try await action.perform(context)
-        if case .simulatePaste = result {
-            // Success
-        } else {
-            XCTFail("Expected .simulatePaste result")
-        }
-    }
-    
-    @MainActor
     func testSearchAction() async throws {
         let store = MemorySettingsStore()
         let action = SearchAction(settingsStore: store)
@@ -235,21 +181,6 @@ final class BuiltinActionsTests: XCTestCase {
             XCTAssertEqual(appBundleIdentifier, "com.brave.Browser")
         } else {
             XCTFail("Expected .openURLInApp result when triggered from a browser")
-        }
-    }
-    
-    @MainActor
-    func testCutAction() async throws {
-        let action = CutAction()
-        let context = createMockContext(with: "test cut")
-        
-        XCTAssertTrue(action.isEnabled(for: context))
-        
-        let result = try await action.perform(context)
-        if case .cut(let text) = result {
-            XCTAssertEqual(text, "test cut")
-        } else {
-            XCTFail("Expected .cut result")
         }
     }
 }

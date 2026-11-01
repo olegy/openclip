@@ -54,9 +54,8 @@ areas; stale debt notes are worse than none.
 
 - The typed settings abstraction is `SettingsStore` + `SettingKey<T>` (see `Sources/Core/Settings/`).
   New settings code must route through it.
-- **AI-config `@AppStorage` surface remains** (`AIServiceManager` keys), and `completionCopyToClipboard`
-  / popup theme still read via `@AppStorage`, but the theme keys (`popupTheme`,
-  `popupThemeColor`) now reference `SettingKey` definitions instead of raw literals. Migrating to
+- **AI-config `@AppStorage` surface remains** (`AIServiceManager` keys). The popup theme keys
+  (`popupTheme`, `popupThemeColor`) are read through `@Setting` with `SettingKey` definitions. Migrating to
   `SettingsStore` is ongoing — **don't add new direct call sites.** (`startAtLogin` was consolidated
   onto `SettingKey.startAtLogin` — `LaunchAtLoginManager` persists through `DefaultSettingsStore`.)
 - **Secrets live in SecretStore, not UserDefaults or macOS Keychain.** Sensitive credentials
@@ -65,15 +64,8 @@ areas; stale debt notes are worse than none.
   `AIServiceManager.cloudAPIKey` is `@Published`, backed by `SecretStore` (account `aiCloudAPIKey`);
   do not convert it back to `@AppStorage`. A one-time migration reads the old `UserDefaults`
   `"aiCloudAPIKey"` key, then deletes it.
-- **`isAppEnabled` is consolidated** onto `SettingKey.isAppEnabled` — the status bar item and the
-  Preferences toggle read/write it through `DefaultSettingsStore`. It means **"Appear
-  Automatically"** (its label in both places): it owns the selection monitor's passive auto-show and
-  nothing else. It is applied in `MacSelectionMonitor.deliverSelection` (the mouse-release/keyboard
-  path) as the global form of the per-app `hotkeyOnly` rule; the explicit **Hold Mouse to Trigger**
-  gesture delivers from `handleMouseDown` and is exempt, so off + hold = hold-only mode. The ⌥⌘C
-  hotkey is an explicit request and is deliberately *not* gated on it.
-  `HotkeyManager.triggerAllowed` gates on the
-  real kill switches instead: Pause (`pauseUntilTimestamp`), app exclusion, per-app `disabled`. Builtin store-backed actions
+- `HotkeyManager.triggerAllowed` gates the hotkeys only on app exclusion (`AppFilter`) and on the
+  frontmost app being identifiable; there is no pause or per-app disable. Builtin store-backed actions
   (`CalculateAction`, `CalendarAction`, `SearchAction`) accept an injected `SettingsStore` via
   `BuiltinRegistry.makeCoreBuiltins(settingsStore:)`.
 - **Menu bar visibility is store-backed and reversible.** `SettingKey.showMenuBarIcon` defaults to
@@ -151,24 +143,14 @@ areas; stale debt notes are worse than none.
   `OpenClipJSHostTests.testFetchBridgeDoesNotRetainContextAfterRun` probes the finished `JSContext`
   deallocating after a fetch that calls `json()` (autorelease pool drained, since JavaScriptCore
   hands out autoreleased receipts).
-- **Custom Action Groups use canonical IDs with dynamic materialization and folder semantics.**
-  User-defined action groups are defined via `ActionGroupDef` (`Sources/Core/Actions/ActionGroupDef.swift`),
-  stored as JSON in `SettingKey.actionGroups`. Rather than rewriting action identifiers with virtual ID
-  prefixes (e.g. `vgroup.<id>.<actionID>`), grouped actions retain their exact canonical IDs
-  (`builtin.copy`, `com.user.ext.action`). `ActionRegistry` dynamically materializes `CustomGroupAction`
-  (`Sources/Core/Actions/CustomGroupAction.swift`, conforming to `Action` and `SubActionProviding`)
-  group rows, injecting them contiguously before their member actions in `actions`, while `SettingKey.actionOrder`
-  strictly stores real, canonical IDs (excluding synthetic group headers and grouped AI presets). `ActionCoordinator`
-  manages the group lifecycle (`createGroup`, `updateGroup`, `ungroup`, `removeFromGroup`, `loadGroupDefs`).
-  The enforced rule is **not** a hard ≥ 2: a group created or saved empty is kept (a folder to fill
-  later), while a group **emptied by a mutation** (`removeFromGroup`, moving its last member into
-  another group, deleting its last member action) is dissolved. Unresolved member IDs are filtered
-  when the group is materialized and on mutating saves, but an existing member that is merely
-  unregistered this session is retained so the group survives an extension reload; `loadGroupDefs`
-  never rewrites the saved configuration, and there is **no `pruneOrphans` boot pass** (an earlier
-  spec claimed one). Availability resolution in
-  `ActionRegistry.availableActions(for:)` maps canonical IDs to owning custom groups to hide member actions
-  when their parent group is disabled or filtered out.
+- **No user groups and no manual order.** Lite removed custom action groups (`ActionGroupDef`,
+  `CustomGroupAction`, `action.groups`) and the whole-catalog drag order (`action.order`,
+  `extensionGroupMemberOrder`, `standaloneAIActionIDs`). `ActionRegistry` keeps registration order;
+  the palette orders itself with `PaletteOrder` (pinned → recent → title, see
+  [Action Coordinator](action-coordinator.md)). Old values of the retired keys stay in the
+  preferences domain unread — nothing migrates them, since the pins start empty by design.
+  Extension groups (`GroupAction`, `.actionGroup` row style) remain: they are package structure,
+  shown as nesting on the package's page and flattened in the palette.
 
 ## Extension JS Module Runtime
 
@@ -203,77 +185,37 @@ areas; stale debt notes are worse than none.
 
 ## Action-Search Palette & Popup Growth
 
-- **Classic popup shadows use a separate padded rendering buffer.** `PopupCardChromeModifier`
-  rasterizes only the solid rounded surface and its contact/ambient shadows, with
-  `popupShadowInset` inside the buffer. The buttons and other live content remain outside that
-  rasterization. This prevents the rectangular shadow cut-off observed a few seconds after
-  presentation as AppKit adds backing layers. The negative outer padding preserves the surface's
-  layout size; the panel still reserves its existing shadow ring. Glass retains its live material
-  rendering. The isolated live panel confirmed the fix on the affected Mac; offscreen captures
-  check idle stability and fading at the panel boundary but cannot reproduce WindowServer's
-  delayed compositing by themselves.
 
-- **Action bar hover chrome** uses a rounded highlight in the system accent color softened 8% toward white, with no horizontal inset for interior text buttons and 2 scaled points for end text buttons; icon buttons retain 2 points for interiors and 3 for ends. All highlights are inset by 3 scaled points vertically, shared by the main and sub-action bars. Interior corners use a 7-point radius; outer edge corners use 10 points (both scaled). Foregrounds and full button hit areas stay unchanged; hovered buttons use a white foreground and the highlight snaps between them with no transition; search chrome is unchanged.
-
-- **AI presets can leave AI Tools.** `SettingKey.standaloneAIActionIDs` records presets dragged
-  to the Actions list's root. Their canonical IDs participate in `action.order`, survive preset
-  reconciliation, and appear directly in the popup. AI Tools excludes those presets from its
-  sub-bar and scoped search. Dropping a preset onto AI Tools removes its explicit order and
-  returns it to the group. Bar and palette clicks share the controller's AI execution path;
-  the global AI switch and individual preset enablement still apply.
-- **AI Tools follows group visibility and membership.** Its Actions-list and menu-bar toggles
-  use `disabledActionIDs`, independently of the global AI service switch. Hidden groups also
-  hide their grouped presets from the bar and search, while standalone presets remain usable.
-  The available-action catalog retains eligible AI children so hover sub-bars and scoped search
-  resolve the same members, without rebuilding filtered-out presets from the AI singleton.
-  Empty AI groups disappear from the popup and Actions list. Ungroup moves all members to the
-  root, Remove from Group moves one, and a standalone preset's Add to Group > AI Tools menu
-  restores the group even after its final member left. Add to Group captures all selected eligible
-  actions, including multiple standalone AI presets. Dropping between its members also works.
-  AI presets support selection-based Delete in the Actions list, removing the saved preset and
-  clearing its shortcut, alias, appearance override, and standalone placement.
-  Return on a single selected action or its Rename context menu edits its display name inline
-  through the customization store; double-clicking a row opens its editor.
-  The editor hero title also supports double-click renaming. A slow second click on a selected
-  name also renames it. Enter or focus loss commits, and Escape cancels. The list chevron still opens the full editor.
-- **Actions-list drag destinations are explicit.** A soft accent fill highlights only the destination
-  group header, without an outline; root drops use the native full-width insertion line. The leading
-  gutter at an expanded group’s bottom gap moves actions out; the indented side reorders inside. Multi-member drops reorder the
-  whole selection using the displayed gap index. Returning AI presets uses the same insertion
-  calculation. Moving the last member out preserves the root destination when its empty group
-  disappears; dragging a group with selected children keeps its membership intact.
+- **AI Tools owns every AI preset.** `AIToolsAction.subActions(in:)` returns all registered presets,
+  so switching AI Tools off hides every preset from the palette. The palette lists the presets, never
+  the launcher row. Settings lists the presets on the AI page; Palette lists them with every other
+  action, to pin and switch them.
+- **Settings action lists are read-only rows.** Palette, Built-in, Custom and an extension's page all
+  use `ActionSettingsRow`: icon, name, alias and hotkey shown as the palette shows them, the enable
+  switch, and a click that opens the action's page. Names, aliases and hotkeys are edited only on
+  that page.
 - **AI presets share the standard action editor.** Their AI settings pages expose the same icon
-  picker, Icon/Text display mode, search alias and per-action shortcut as other leaf actions,
+  picker, search alias and per-action shortcut as other leaf actions,
   alongside an autosaved prompt field. Appearance and aliases use the existing stores keyed by
-  canonical action ID, so moving a preset into or out of AI Tools preserves its customization.
-  Text remains the default; Icon mode falls back to the AI symbol when no icon has been chosen.
+  canonical action ID.
   The new-preset form exposes appearance, alias and shortcut controls before creation. Its draft
-  defaults to Text and only persists these settings when Add Action succeeds, after alias
+  only persists these settings when Add Action succeeds, after alias
   validation; cancelling does not register a shortcut or reserve an alias.
   AI output still streams into its result card, so the ordinary delivery picker is not shown.
 
 - **Content-driven panel growth has no controller callback.** The `NSHostingView` auto-resizes the
-  panel window top-anchored when its SwiftUI content grows (e.g. entering search mode);
-  `onPreferenceChange`/`onContentSizeChange` never fires for this and `sizingOptions` has no effect.
-  The only reliable hook is `PopupPanel.setFrame` (`PopupPanel.swift:42`): when
-  `pinBottomEdgeOnResize` is set it keeps the bottom edge fixed so results-above-the-field growth
-  never shoves the popup. For the search palette the pin is one-shot
-  (`releasesBottomPinAfterGrowth`): it covers the entry growth only. The palette captures its
-  height from the initial result count, so filtering does not resize the card or move the field;
-  longer result sets scroll within that height. `exitSearch()` re-arms the pin for the search→bar
-  collapse after restoring the bar's bottom edge (Esc no longer jumps the popup). Both flags are
-  cleared by `show(for:)` and `hide()` before intentional placement.
-- **Search and content modes are the two key exceptions to the never-key rule.** `PopupPanel.allowsKey`
-  enables `canBecomeKey`/`canBecomeMain` in both modes (`PopupPanel.swift:19`), routed through the
-  same `enterKeyMode()`/`exitKeyMode()` primitives (`PopupWindowController.swift:196,206`). A
-  `@FocusState`-in-onAppear request is silently dropped on macOS, so search forces focus via
-  `focusSearchField()` on the next run-loop turn (`PopupWindowController.swift:245`);
-  `previousFrontmostApp` is captured once per session (on `show(for:)`/`enterKeyMode`, never
-  re-captured mid-session) and re-activated on `exitKeyMode`/`hide`.
-- **Search and content modes suspend popup dismissal.** The distance auto-dismiss and the key/scroll
-  dismissals in `handleEvent` are skipped while `modeStore.mode == .search` or `.content`
-  (`PopupWindowController.swift:591,612,622`), so typing with the mouse elsewhere doesn't close the
-  palette, and the result card stays open until it is collapsed or the popup hides.
+  panel window top-anchored when its SwiftUI content changes (e.g. the result card replacing the
+  palette); `onPreferenceChange`/`onContentSizeChange` never fires for this and `sizingOptions` has
+  no effect. The only reliable hook is `PopupPanel.setFrame`, which clamps to the screen and
+  `heightCap`, keeps the top edge fixed and, while `recentersOnResize` is set, keeps the panel's
+  `midX`. `showResultCard` re-measures (`fitPanelToContent`) three times — immediately, after the
+  current run-loop turn, and 50 ms later — because the first content-mode entry needs extra layout
+  passes.
+- **The palette and the result card are the only surfaces, and both make the panel key.**
+  `PopupPanel.allowsKey` enables `canBecomeKey`/`canBecomeMain` while either shows, routed through
+  `enterKeyMode()`/`exitKeyMode()`. A `@FocusState`-in-onAppear request is silently dropped on
+  macOS, so the palette forces focus via `focusSearchField()` on the next run-loop turn;
+  `previousFrontmostApp` is captured once per session and re-activated on `exitKeyMode`/`hide`.
 - **The floating bubble panel is gone; content renders inline.** The second `PopupPanel` (and its
   `showBubble`/`hideBubble`/`bubbleBlocksDismiss` machinery) was removed — action/AI result
   content renders inside the single panel via `.content` mode (`PopupModeStore`) as a native
@@ -281,36 +223,28 @@ areas; stale debt notes are worse than none.
   there with its customization-resolved icon (`DeliveryContext.actionIcon`, snapshotted by the same
   perform paths as `actionTitle`); AI streaming deliveries pass no icon and keep the sparkles glyph. `StatusBadgeModel` and the old `.info`/`.result`/`.menu` emphasis
   model are gone, and the inline status banner is gone too: every `StatusFeedback` renders as a
-  floating toast (`ToastPanelController`) with no queue — statuses appear near the cursor — and
+  floating toast (`ToastPanelController`) with no queue, and
   `showsLoading` actions (manifest `"loading"`) use the early-close spinner toast.
-  Fresh toasts capture the cursor position and prefer a clear position above the pointer or
-  action/group bar before using space below or beside it. Above-bar preference is limited to
-  140 pt from the cursor so tall cards do not send feedback far away. Toasts avoid screen edges.
-  They stay fixed during mouse movement; loading completion retains the initial
-  position. Toasts without a popup use the same cursor-relative placement. Capture-toast ownership
-  is tracked by presentation ID, so closing an OCR popup does not hide a newer action-result toast.
-  Toast windows also use `canJoinAllApplications` for other apps' fullscreen Spaces. A bounded
+  A toast tied to the popup centers on the popup's frame; without one it shows near the cursor,
+  away from screen edges. Toasts stay fixed during mouse movement; loading completion retains the
+  initial position. Toast windows also use `canJoinAllApplications` for other apps' fullscreen Spaces. A bounded
   150 ms visibility check replaces an invisible/off-Space window once per presentation, retaining
   the content, position, and dismissal timer without activating OpenClip. New shows and hide
   invalidate the check. Actual fullscreen pixels still require validation on the affected Mac.
-  All toasts, including cancellable loading pills, reserve `toastShadowInset` inside the
-  window. Cancellable pills use a subtle theme-aware inset rounded hover tint,
-  preserving their outer chrome while displaying an × and “Cancel Task”. Shadows render inside the
-  window so they are not clipped. The container excludes the ring from
-  view hit-testing; true cross-application click-through for interactive toast rings still
-  requires window-level mouse-event routing (returning nil from hit-testing alone is insufficient).
+  Cancellable loading pills use a subtle theme-aware inset rounded hover tint, preserving their
+  outer chrome while displaying an × and “Cancel Task”. Toasts and the palette use the system window
+  shadow, so the window frame is exactly the visible surface.
 - **Search and result-card footers share separate theme-aware buttons.**
   `PopupFooterButtonChrome` uses a native `.glassEffect` rounded rectangle for the glass theme on
   macOS 26+, with a material/tint fallback; secondary actions are neutral and the primary action
   uses the accent color. In light mode, primary glass buttons use a full-opacity accent base and
   glass tint to avoid washing out the color beneath white labels. Buttons have a 12pt radius, compact targets, and a 6pt gap, with an 8pt
   trailing inset so the final button sits closer to the popup edge.
-- **The search header can move the popup.** Dragging its magnifying glass or the clear strips above
-  and below the text field uses the result card's panel-drag path; editing and selecting search text
-  remains on the text field. The pre-search bar frame moves by the same delta so leaving search
-  returns the bar to the dragged position. The trailing source chip shows whether the active action
-  context is the selection or clipboard; Tab switches between them when a distinct clipboard text
-  snapshot is available, and the visible chip can also be clicked.
+- **The search header can move the popup.** Dragging the clear strips above and below the text
+  field uses the result card's panel-drag path; editing and selecting search text remains on the
+  text field. The trailing source chip and the footer's `PaletteSourceFooter` show whether the
+  active action context is the selection or clipboard; Tab switches between them when a distinct
+  clipboard text snapshot is available, and both can also be clicked.
 - **Define has a single display picker; popover mode is a system Look Up popover, not inline
   content.** `DefineAction` exposes one `definitionDisplay` picker (`card` default / `popover` /
   `dictionary`), replacing the old `openInDictionaryApp` boolean; a legacy `true` migrates to
@@ -347,24 +281,17 @@ areas; stale debt notes are worse than none.
 - **Search rows render icons strictly `[icon | text]`.** A `.text` icon in the icon column would
   duplicate the title, so `PopupSearchView.rowIcon` falls back to `ConfigurableAction.preferenceIconName`; all four
   `ActionIcon` cases render through the shared `ActionIconView` (`Sources/OpenClip/UI/Icons/ActionIconView.swift`),
-  including Iconify-format symbols (`prefix:name`). The popup bar keeps its own `iconView(for:)`
-  (`PopupView.swift`) because text icons there need natural width + horizontal padding, not a fixed frame.
+  including Iconify-format symbols (`prefix:name`).
 - **Popup sizing constants live in the App target.** `PopupMetrics`
-  (`Sources/OpenClip/UI/Popup/PopupMetrics.swift`) holds the UI-only values — `searchMaxRows`
-  (5), `searchResultRowHeight` (32), `searchPeekRowFraction` (0.5), `popupMaxHeight` (300, the
-  shared height cap for the popup panel — lifted per-session via `PopupPanel.heightCap` while the
-  result card shows, since a user-resized card may be taller), the AI card bounds
-  (`aiCardMinWidth` 220 / `aiCardIdealWidth` 320 / `aiCardMaxWidth` 360 / `aiCardMinHeight` 200 /
-  `aiCardMaxHeight` 280 — the max bounds only cap the content-driven default; the card's resize
-  handles go up to the screen, see `PopupResizeGeometry`) plus placement/dismissal
-  distances. The remembered card size is a popup preference declared in the App
-  target (`SettingKey+ResultCard.swift`, next to
-  `SettingKey+MenuBar.swift`) because it is pure presentation. `Core/Selection/Constants.swift` keeps only
-  domain/runtime constants (timeouts, key codes, env vars, manifest keys).
-
-- **The Search all actions button is optional.** `SettingKey.showSearchAllActions` defaults to
-  true and is exposed under Customize → Behavior. Hiding it removes its width reservation
-  from popup pagination and updates the Appearance preview. The search hotkey stays available.
+  (`Sources/OpenClip/UI/Popup/PopupMetrics.swift`) holds the UI-only values — the palette size
+  (`searchPanelContentWidth` 680 × `searchPaletteMinHeight` 414), `searchMaxRows` (6),
+  `searchResultRowHeight` (30), the result card bounds (`aiCardMinWidth` 220 /
+  `aiCardIdealWidth` 320 / `aiCardMinHeight` 200 / `aiCardMaxHeight` 280; the resize handles go up
+  to the screen, see `PopupResizeGeometry`), toast timing and the focus-switch grace period. The
+  remembered card size is a popup preference declared in the App target
+  (`SettingKey+ResultCard.swift`, next to `SettingKey+MenuBar.swift`) because it is pure
+  presentation. `Core/Selection/Constants.swift` keeps only domain/runtime constants (timeouts,
+  key codes, env vars, manifest keys).
 
 ## AI Providers
 
@@ -401,49 +328,32 @@ areas; stale debt notes are worse than none.
 
 ## Screen text capture
 
-The menu bar and the dedicated ⌥⌘O shortcut start a one-shot ScreenCaptureKit capture after a
-per-screen crosshair drag. Vision performs recognition locally; captured text opens the ordinary
-action bar beside the selector's mouse-release point using the standard popup gap and
-`SelectionSource.ocr`. If the pointer moves more than eight points while recognition runs, the
-popup follows its current location and drops the stale drag-direction hint; the original capture
-region remains in `selectionBounds`. The selector closes synchronously on a valid release so the
-screen returns to normal before capture and recognition begin. A one-second arrival grace avoids
-distance-dismissal from cursor movement during recognition. Switching to another app cancels the
-pending OCR delivery.
-OCR sessions permit Copy and other actions that accept text. Extension `requirements.input` now
-separates optional input, nonblank text, a live selection, and a confirmed editable selection;
-legacy `requiresSelection` maps to `text`/`optional`. OCR satisfies `text`, while selection-bound
-requirements reject OCR and clipboard sources. `requiresPasteTarget` describes destination support
-independently from input source. At the result-delivery boundary, OCR cut/paste effects are converted
-to Copy and simulated paste is dropped, including direct and loading action paths. Actions that
-require a live or editable selection recheck the captured selection generation and target before
-their effects run. This check does not sandbox scripts or prevent arbitrary side effects authored
-inside them. Catalog manifests using the new fields must wait for the first app release that enforces
-them; the current source version (1.7.3) is not a confirmed compatibility floor. The OCR flow automatically copies nonempty recognized text by default, then opens the action
-bar. The “Copy to Clipboard Automatically” checkbox beneath Capture Text in General → Shortcuts
-can disable this behavior. Successful capture shows a content-free “Text copied” toast
-when auto-copy is enabled, or “Text captured” when disabled, in a separate `ToastPanel` near
-the pointer position captured at recognition completion. Placement prefers above the cursor and
-chooses a clear nearby side when the popup, a group bar, or screen edges obstruct it. The position
-never follows mouse movement. It auto-dismisses after 1.2 seconds using the existing toast lifecycle;
-the action panel never grows, shrinks, or moves for feedback. Search stays an explicit action.
-OCR group sub-bars prefer opening below the actions; toast placement avoids either side without
-restarting its timer. Hover tooltips avoid the toast. Dismissal and new sessions clear it.
-Copy uses the shared clipboard coordinator and rechecks cancellation/session validity after
-acquiring its lease, so superseded recognition does not overwrite the clipboard. Screen Recording access is
-requested by the system on
-first capture; capture errors show System Settings guidance. Selection monitoring is suppressed
-and pending OCR is cancelled through the capture request token, so stale OCR results cannot
-replace a newer popup.
+Capture Text has no default shortcut and no menu bar item; the user assigns a shortcut in
+General → Shortcuts. It starts a one-shot ScreenCaptureKit capture after a per-screen crosshair
+drag (Esc cancels; `cancelCaptureText` is enabled only while capturing). Vision recognizes the text
+locally. `CaptureTextController.deliverRecognizedText` copies nonempty text through the shared
+clipboard coordinator, rechecking cancellation and session validity after acquiring its lease so
+superseded recognition does not overwrite the clipboard, and confirms with a content-free
+"Text copied" toast at the release point (`CaptureTextToastAnchor`). It does not open the popup.
+Switching to another app cancels a pending capture. Screen Recording access is requested by the
+system on first capture (General also has a Screen Recording permission row); capture errors show
+System Settings guidance.
+
+Extension `requirements.input` separates optional input, nonblank text, a live selection, and a
+confirmed editable selection; legacy `requiresSelection` maps to `text`/`optional`. Selection-bound
+requirements reject clipboard input, and `requiresPasteTarget` describes destination support
+independently from the input source. `PopupWindowController.canPerformAction` rechecks these, and
+that the source app is still frontmost, before an action runs. This check does not sandbox scripts
+or prevent arbitrary side effects authored inside them.
 
 ## Unused / Latent
 
 - **`ActionContext.modifiers` is currently unused.** No action reads it; `PopupWindowController`
   passes `modifiers: []`. The click intent itself *is* plumbed: `ActionContext.isSecondaryClick` is
   set from
-  the run's resolved intent by the bar/sub-bar/palette perform paths (right-click or ⇧-click via
-  the bar/sub-bar mouse intent; ⇧⏎ and the ⇧⏎ footer badge via the palette's own `replace` flag,
-  passed explicitly through `onWillPerformAction`/`onRunLoadingAction`) and read by `DefineAction`
+  the run's resolved intent by the palette perform paths (right-click or ⇧-click via the mouse
+  intent; ⇧⏎ and the ⇧⏎ footer badge via the palette's own `replace` flag, passed explicitly
+  through `onWillPerformAction`/`onRunLoadingAction`) and read by `DefineAction`
   to copy a definition headlessly. True modifier keys (⌘/⌥) still don't reach actions.
 - **Paste delivery is now standardized but has a probe reliance.** Leaf `.paste` results are
   re-decided by `ActionResultDelivery` (App target) per the rule in the dev-guide §5b: a secondary
@@ -458,15 +368,13 @@ replace a newer popup.
   Accessibility permission and
   walks the target's Edit ▸ Paste AX menu item; without AX it returns "unknown" and delivery falls
   back to copy (safe but means paste never happens for AX-less users). The same unified decision drives
-  `modeStore.canPaste`, which hides the card's Paste button and the bar/search Paste + Cut
-  (`PasteRequiringAction`) actions on a confirmed cannot-paste; unknown keeps them visible. The
+  `modeStore.canPaste`, which hides the card's Paste button on a confirmed cannot-paste; unknown
+  keeps it visible. The
   probe is started by the trigger sites in parallel with selection retrieval and applied before the
   first frame (probe-before-render, nothing cached), so a same-app focus-context change re-probes
   cleanly. The click-intent capture reads
-  only ⇧ (not ⌘/⌥); the bar/sub-bar take it from mouse-down, while the palette resolves it itself
-  (`replace` for ⇧⏎ / the ⇧⏎ badge, else the captured mouse intent) and passes it explicitly into
-  the delivery snapshot, and entering the palette resets `pendingClickIntent` so a keyboard run
-  never inherits the right-click that opened a group's scoped palette. Since Task 4, each action's
+  only ⇧ (not ⌘/⌥); the palette resolves it itself (`replace` for ⇧⏎ / the ⇧⏎ badge, else the
+  intent captured at mouse-down) and passes it explicitly into the delivery snapshot. Since Task 4, each action's
   declared `Action.delivery` (a distinct
   secondary outcome + per-click `primaryToast`/`secondaryToast`) is snapshotted alongside the click
   intent and fed into `resolve`, and the returned tuple's toast is rendered directly — the manual
@@ -475,9 +383,8 @@ replace a newer popup.
   suppresses the delivery companion toast entirely — one toast per run — and `keepVisible: true`
   stops a toast's auto-dismiss and keeps the popup open (a `.toast` dismisses by default). Only the
   SwiftUI inline perform path snapshots via the new `onWillPerformAction` closure;
-  the completion-button paste path (`PopupView` `onResult(.paste(word))`) routes through
-  `deliverResult`, which clears `pendingDelivery` right after its snapshot (single-use per perform),
-  so a prior non-dismissing action's declared delivery can never leak onto a completion paste. The
+  `deliverResult` clears `pendingDelivery` right after its snapshot (single-use per perform), so a
+  prior non-dismissing action's declared delivery can never leak onto a later result. The
   force-copy probe short-circuit skips the AX walk for a secondary click whose outcome is a copy;
   a declared `.paste` secondary is the exception and still probes, so it is honored when the target
   can paste (and downgrades to copy when it cannot). Implicitly returned text
@@ -550,22 +457,19 @@ replace a newer popup.
   distinguish empty selection, changed target, timeout, blocked copy, cancellation, policy
   refusal, worker saturation, and failure. Optional APIs remain compatibility projections.
   Core's `TextReadResponse` and `SelectionTriggerResponse` carry these through the bridge
-  and hotkey/monitor paths. Clipboard fallback retains the original retrieval reason.
+  and hotkey paths. Clipboard fallback retains the original retrieval reason.
   Reports add an optional `readStatus` so older report JSON remains readable; outcome logs
   contain codes, never selected text or clipboard payloads.
 - **Selection logging is summarized and correlated.** Each retrieval emits one completion
   event with configured/winning strategies, reason, timings, retry counts and observed
   clipboard restoration. Poll-level details are trace-only. Task-local correlation follows
-  capture and detached menu work; response IDs correlate monitor/hotkey delivery decisions.
+  capture and detached menu work; response IDs correlate hotkey delivery decisions.
   Reports retain structured metrics without duplicating the app's completion line. Phase
   measurements overlap; they are diagnostic boundaries, not additive latency components.
-- **Delayed paste checks observed selection freshness.** Monitor invalidation advances a
-  generation carried by selection contexts. Hotkey reads reject results after a generation
-  changes, and popup delivery checks freshness before and after paste probing, downgrading
-  stale paste results to copy. This covers observed mouse/keyboard field changes and app
-  switches; programmatic focus changes without an observed gesture are not detected.
-  It is not an AX focused-element identity guarantee, and arbitrary extension keystrokes
-  remain outside this paste-result check.
+- **Delayed paste checks rely on the frontmost app only.** With no passive monitor there is no
+  selection generation: the hotkey read binds copy authorization to the captured source PID and
+  request, and delivery downgrades a paste to a copy when the source app is no longer frontmost.
+  A focus or selection change inside the same app between the read and the paste is not detected.
 - **OpenSelection is published and pinned to 2.15.3.** `project.yml` resolves the remote
   tag at `a421effaebe473eb121fe0ebc469117a1de325e0`; the local checkout is optional.
   Inspect and menu budgets use monotonic clocks. Inspect deliberately leaves the initial
@@ -573,59 +477,27 @@ replace a newer popup.
   process-global AX timeout. That call remains residual exposure; subsequent element
   reads are bounded. Shared-trace refresh can extend an overlapping retry worker's budget.
 - **Selection-to-popup diagnostics carry the retrieval trace.** `SelectionContext.traceID`
-  survives context transformations and correlates blocked delivery, placement failures,
-  recovery, and related occlusion/dismissal events. Routine successful presentation is quiet.
-  See `docs/logging.md`. Window state is evidence, not proof of on-screen pixels;
-  pre-retrieval gesture rejection may have no retrieval trace.
-- **Popup fullscreen eligibility is explicit.** The main panel uses `canJoinAllApplications`
-  alongside `canJoinAllSpaces` and `fullScreenAuxiliary` to join other apps' fullscreen
-  Spaces. At the first delayed visibility check, a visible non-key panel still off-Space
-  gets one replacement panel with the existing hosting view and frame, only while its
-  source PID remains frontmost. A separate presentation token invalidates checks on hide
-  or replacement (including re-shows retaining an AI session). Resetting flags on the old
-  window failed in live traces #102/#104/#106; the new window identity replaces that failed
-  approach. Recovery is restricted to action mode. The content view and frame survive; recovery never activates OpenClip or makes the panel key. The second check logs
-  unresolved placement. Automated tests verify the guards and bounded retry; actual
-  fullscreen placement still requires WindowServer validation on the affected machine.
-- **Hover over fullscreen rides the panels' `.activeAlways` tracking areas, not the event
+  survives context transformations and correlates the hotkey outcome with delivery. Routine
+  successful presentation is quiet. See `docs/logging.md`.
+- **Popup fullscreen eligibility is explicit.** The main panel and the toast panel use
+  `canJoinAllApplications` alongside `canJoinAllSpaces` and `fullScreenAuxiliary` to join other
+  apps' fullscreen Spaces. Only the toast has an off-Space recovery
+  (`ToastPanelController.recoverToastSpaceIfNeeded`); actual fullscreen placement still requires
+  WindowServer validation on the affected machine.
+- **Hover over fullscreen rides the panel's `.activeAlways` tracking area, not the event
   monitors.** While OpenClip is inactive over another app's fullscreen Space, the global monitor
   receives no own-window `mouseMoved` events (they are not "global"), the local monitor gets none
-  (the non-activating panel is not key and the app is not active), and SwiftUI `.onHover` does not
-  fire for an inactive non-key window — so hover highlights, tooltips, and the group sub-bar dwell
-  all died in fullscreen. `PopupPanel.ContentView` and `SubBarPanel.ContentView` now install
-  `.activeAlways` + `.mouseMoved` tracking areas (AppKit delivers these regardless of app/key
-  status) and forward mouse movement, entry, and exit to `PopupWindowController.handleTrackingMouseMoved`,
-  which drive the same `updatePopupHover`/`updateSubBarHover` pipeline. That path deliberately passes
-  `toggleClickThrough: false`: with no monitor to notice pointer re-entry, toggling
-  `ignoresMouseEvents` would strand the panel under the cursor. The monitors remain the source of
-  click/scroll/key dismissal. Panel `mouseExited` updates hover and sub-bar grace; it does not
-  dismiss the main popup. Group and AI Tools buttons route SwiftUI `.onHover` solely through
-  the local fallback; it cannot start or cancel dwell while cursor tracking owns hover. Both
-  paths use the same target-transition handler, so duplicate entries and stale local exits cannot
-  restart dwell or cancel a different group's timer. Pointer-distance dismissal in fullscreen remains dependent on monitor
-  delivery and is not supplied by this tracking-area path.
-- **Automatic reads are tied to the selection source process.** The monitor uses the activated app
-  from the workspace notification and cancels pending reads and clears the cached selection on a
-  switch away from the source. Queued notifications for apps no longer frontmost, activation of
-  the source itself, and OpenClip's own popup activation are ignored. Delivery rechecks the source
-  PID and suppression after asynchronous retrieval, paste probing, editability probing, and inline
-  prewarming, so a late result cannot show over another app. The injected copy capture also checks
-  the original source PID before entering OpenSelection's capture, covering a switch that happens
-  during AX retrieval before the package snapshots the frontmost PID. Mouse and keyboard passive monitoring
-  both withhold copy fallback when automatic appearance is disabled or the app is `hotkeyOnly`;
-  native AX reads still populate the shortcut cache.
-- **Window gestures are rejected before retrieval.** OpenSelection's `SelectionGestureWindow`
-  supplies the geometry snapshot; OpenClip's monitor records the top normal window
-  under the initial press and compares that window's frame on release. A move, resize or missing
-  window cancels retrieval even if the focused editor still exposes an old selection. Missing
-  initial window metadata leaves ordinary selection detection intact; the copy authorization
-  above still applies. This geometry check does not classify every custom control drag, or a
-  window moved away and back to exactly its original frame within one gesture.
+  (the app is not active), and SwiftUI `.onHover` does not fire for an inactive non-key window.
+  `PopupPanel.ContentView` installs an `.activeAlways` + `.mouseMoved` tracking area and forwards
+  movement, entry and exit to `PopupWindowController.handleTrackingMouseMoved`, which drives the
+  same `updatePopupHover` pipeline. That path passes `toggleClickThrough: false`: with no monitor to
+  notice pointer re-entry, toggling `ignoresMouseEvents` would strand the panel under the cursor.
+  The monitors remain the source of click and key dismissal.
 - **The coordinator runs a targeted strategy chain with native AX prioritization.**
   `retrievalMode` picks the entry point; retrieval runs that strategy and its fallbacks
   (native text controls fall back to keyboard copy unless strictly native; web areas cascade
   `ax-web-area → keyboard-copy`). Browsers resolve natively via `AXWebArea` in <1 ms with deep
-  ancestor search (depth 25 + window search) and fall back to keyboard copy with a 0.6 s timeout,
+  ancestor search (depth 25 + window search) and fall back to keyboard copy with a 0.4 s timeout,
   completely removing the legacy `browser-script` AppleScript subprocess churn and permission friction.
 - **Web-area settle-retry exhaustion is untested.** The `.axWebArea` retry loop
   (`webAreaSettleMaxRetries` = 6, re-inspecting fresh each attempt) returns `nil` when the text
@@ -638,30 +510,14 @@ replace a newer popup.
   skip it. A residual microsecond race remains for a clipboard manager polling `changeCount`
   between the synthetic copy landing and the restore; `pasteboardRestoreDelay` no longer gates
   the capture path (it only backs the paste-back `SelectionReplacer`).
-- **Hold-trigger clipboard fallback is structurally gated, not cursor-gated.** The
-  `MacSelectionMonitor` hold task inherits the clipboard only when the press point resolves to
-  editable text via `pressIsOverEditableText` (and paste is not denied): an AX hit-test to a text
-  control, or the focused editable element's frame covering the press (CodeMirror/Monaco's
-  caret-anchored hidden textarea). The earlier I-beam-cursor signal was dropped — browsers render
-  an I-beam over *read-only* selectable text, so it re-admitted the fallback over web articles.
-  A "shared web area" widening was also rejected: it admitted any read-only page text while an
-  input elsewhere held focus, which is the leak the gate exists to prevent. Residual limit: a
-  custom-drawn editor exposing no AX text control at all (rare outside terminals, which are
-  policy-excluded) will not fall back. `SelectionEditabilityProbe` runs the lookup on a dedicated
-  concurrent queue, with the press coordinates and source PID captured before dispatch. A watchdog
-  returns false at `axReadTimeout`; each AX message uses the remaining shared budget and no new
-  read starts after the deadline. Actual workers are capped at `axMaxConcurrentInspects` and keep
-  their permits until they exit, so timed-out workers cannot accumulate unbounded threads.
-  Saturation fails closed (no clipboard fallback) while those workers finish. The main actor
-  remains responsive throughout.
-
 
 ## Test Isolation
 
 - **Shared reset for the app singletons:** `Tests/OpenClipTests/TestIsolation.swift` centralizes
   `TestIsolation.reset()` — clears `ActionRegistry.shared`, `ActionCustomizationManager.shared`,
-  `RuleEngine.shared`, and `ExtensionManager.shared` (loaded actions, `onRegister`/`onUnregister`
-  callbacks, and factory). The singleton-touching test classes call it in `setUp()`, so the suite is
+  `ActionBindingStore.shared`, and `ExtensionManager.shared` (loaded actions, `onRegister`/`onUnregister`
+  callbacks, and factory), plus the inline-result cache and AI provider override. `RuleEngine` has
+  no mutable state (built-in rules only). The singleton-touching test classes call it in `setUp()`, so the suite is
   order-independent. `ActionCoordinator.shared` needs no explicit reset: it mirrors the registry's
   `@Published` state, which `ActionRegistry.reset()` clears.
 - **Tests must wire what they read.** A test that expects loaded extensions to land in the shared
@@ -677,6 +533,11 @@ replace a newer popup.
   rather than writing the real preferences domain, and `SecretActionOptionStoreTests` redirects to a
   temporary file (`SecretStore.setFileURLForTesting`),
   eliminating live system pasteboard/keychain mutation during test runs.
+- **Known failures (baseline 2026-10-31, OpenClip Lite, 1321 tests):** none — the full suite
+  passed with 0 failures.
+  Order/timing flakes seen before, each passing alone — treat a single failure of these as known:
+  - `ActionCoordinatorTests.testActionCoordinatorResolvesActionsForContext` (leaked shared state).
+  - `ActionDuplicationTests.testDuplicateExtensionPackage` (once in three runs, 2026-09-28).
 - **Removed slow/flaky/environment-dependent tests:** the Apple Intelligence live-model test
   (`testAppleIntelligenceMatchesPresetPrompts`) made
   real on-device `LanguageModelSession` calls; `DebugLogEndToEndTests` polled `OSLogStore`
@@ -696,22 +557,3 @@ replace a newer popup.
 - **`chrome` category is reserved but unused** — no popup-window-chrome code logs yet.
 - **`RotatingFileLogSink` keeps all non-`Sendable` state on its serial queue**, including
   its `DateFormatter`; its `@unchecked Sendable` depends on that rule (#45).
-# Popup appearance preview and pagination
-
-The appearance preview uses one contextual sample (Calculate), text labels for Copy/Cut/Paste,
-and fixed SF Symbol sample actions, with a presenter that ignores saved action customizations.
-Its stable preview viewport pins the contextual island at a left inset as the main bar grows.
-Per-action contextual exclusions do not change the static sample. The main bar's Actions Per Page setting
-and width budget apply to the standard island independently of the contextual island.
-
-Outer bar hover insets are 3 pt on each exposed edge, matching the vertical inset; sub-bars
-account for their existing 1 pt row padding. Contextual edge rounding uses island-local offsets
-independently of the global hover index, including when the contextual island is on the right.
-
-## Actions per page ([#148](https://github.com/ganeshmshetty/openclip/issues/148))
-
-Appearance uses a Liquid Glass count stepper (2–24) with native press-and-hold repetition
-and a separate Fit to width toggle.
-Fit to width defaults off and preserves the saved manual count (default 6); both main and
-group bars pass an unlimited count to the existing width-budget layout when enabled.
-Actual capacity depends on the popup display, scale, controls, and rendered action widths.

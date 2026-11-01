@@ -4,11 +4,11 @@ import Core
 import ScreenCaptureKit
 import Vision
 
-/// Owns the one-shot screen region capture and local Vision OCR flow.
+/// Owns the one-shot screen region capture and local Vision OCR flow. The recognized text is
+/// copied to the clipboard and confirmed with a toast.
 @MainActor
 final class CaptureTextController {
     private weak var popupController: PopupWindowController?
-    private let settingsStore: SettingsStore
     private let resultHandler: DefaultActionResultHandler
     private var panels: [RegionSelectionPanel] = []
     private var captureTask: Task<Void, Never>?
@@ -17,26 +17,22 @@ final class CaptureTextController {
     private var sourceApp: NSRunningApplication?
     private var activationObserver: NSObjectProtocol?
 
-    init(popupController: PopupWindowController, settingsStore: SettingsStore = DefaultSettingsStore.shared,
+    init(popupController: PopupWindowController,
          resultHandler: DefaultActionResultHandler = DefaultActionResultHandler()) {
         self.popupController = popupController
-        self.settingsStore = settingsStore
         self.resultHandler = resultHandler
     }
 
     /// Shared completion path: never copy empty, cancelled, or superseded recognition results.
     func deliverRecognizedText(_ text: String, isCurrent: @escaping @MainActor () -> Bool,
-                               showPopup: @MainActor (StatusFeedback) -> Void) async throws {
+                               confirm: @MainActor (StatusFeedback) -> Void) async throws {
         try Task.checkCancellation()
         guard isCurrent(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let autoCopy = settingsStore.get(.captureTextAutoCopy)
-        if autoCopy {
-            guard try await resultHandler.copyText(text, isCurrent: isCurrent) else { return }
-        }
+        guard try await resultHandler.copyText(text, isCurrent: isCurrent) else { return }
         try Task.checkCancellation()
         guard isCurrent() else { return }
-        showPopup(StatusFeedback(
-            message: autoCopy ? String(localized: "Text copied") : String(localized: "Text captured"),
+        confirm(StatusFeedback(
+            message: String(localized: "Text copied"),
             style: .success,
             symbolName: "checkmark.circle.fill"
         ))
@@ -69,8 +65,8 @@ final class CaptureTextController {
             let panel = RegionSelectionPanel(screen: screen)
             panel.onCursorRefresh = { [weak self] in self?.cursorLease.refresh() }
             panel.onCancel = { [weak self] in self?.cancel() }
-            panel.onSelection = { [weak self] rect, releasePoint, mouseDownPoint, selectedScreen in
-                self?.beginRecognition(rect: rect, releasePoint: releasePoint, mouseDownPoint: mouseDownPoint, screen: selectedScreen, requestID: id)
+            panel.onSelection = { [weak self] rect, releasePoint, _, selectedScreen in
+                self?.beginRecognition(rect: rect, releasePoint: releasePoint, screen: selectedScreen, requestID: id)
             }
             panel.makeKeyAndOrderFront(nil)
             return panel
@@ -103,7 +99,7 @@ final class CaptureTextController {
         closePanels()
     }
 
-    private func beginRecognition(rect: CGRect, releasePoint: CGPoint, mouseDownPoint: CGPoint, screen: NSScreen, requestID id: UUID) {
+    private func beginRecognition(rect: CGRect, releasePoint: CGPoint, screen: NSScreen, requestID id: UUID) {
         guard requestID == id else { return }
         let displayID = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber).map { CGDirectDisplayID($0.uint32Value) }
         guard let displayID,
@@ -139,31 +135,16 @@ final class CaptureTextController {
                         self.showFailure(String(localized: "No text found"))
                         return
                     }
-                    let identity = self.sourceApp.map(AppIdentity.init) ?? AppIdentity(bundleIdentifier: nil, localizedName: nil)
-                    let anchor = CaptureTextPopupAnchor.resolve(
+                    let toastPoint = CaptureTextToastAnchor.point(
                         releasePoint: releasePoint,
-                        mouseDownPoint: mouseDownPoint,
                         currentPointer: NSEvent.mouseLocation
-                    )
-                    let context = SelectionContext(
-                        text: text,
-                        sourceApp: identity,
-                        cursorPosition: anchor.cursorPosition,
-                        mouseDownLocation: anchor.mouseDownLocation,
-                        selectionBounds: rect,
-                        timestamp: Date(),
-                        appPolicy: RuleEngine.shared.resolvePolicies(for: identity),
-                        source: .ocr,
-                        isEditable: false,
-                        pasteTargetAvailable: false
                     )
                     try await self.deliverRecognizedText(text, isCurrent: { [weak self] in
                         guard let self else { return false }
                         return self.requestID == id && self.isSourceAppStillActive
                             && HotkeyManager.triggerAllowed(frontmost: self.sourceApp)
                     }) { feedback in
-                        self.popupController?.previousFrontmostApp = self.sourceApp
-                        self.popupController?.show(for: context, pasteAvailable: false, captureFeedback: feedback)
+                        self.popupController?.showToast(feedback, at: toastPoint)
                     }
                 } catch is CancellationError {
                     return
@@ -342,22 +323,17 @@ enum CaptureOverlayCleanup {
     }
 }
 
-struct CaptureTextPopupAnchor: Equatable {
-    let cursorPosition: CGPoint
-    let mouseDownLocation: CGPoint?
-
-    static func resolve(
+/// Where the "Text copied" toast appears: at the point the selection was released, or at the
+/// pointer if it has moved away during recognition.
+enum CaptureTextToastAnchor {
+    static func point(
         releasePoint: CGPoint,
-        mouseDownPoint: CGPoint,
         currentPointer: CGPoint,
         movementThreshold: CGFloat = 8
-    ) -> CaptureTextPopupAnchor {
+    ) -> CGPoint {
         let movedX = currentPointer.x - releasePoint.x
         let movedY = currentPointer.y - releasePoint.y
-        guard hypot(movedX, movedY) > movementThreshold else {
-            return CaptureTextPopupAnchor(cursorPosition: releasePoint, mouseDownLocation: mouseDownPoint)
-        }
-        return CaptureTextPopupAnchor(cursorPosition: currentPointer, mouseDownLocation: nil)
+        return hypot(movedX, movedY) > movementThreshold ? currentPointer : releasePoint
     }
 }
 

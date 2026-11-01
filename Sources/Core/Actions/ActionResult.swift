@@ -134,20 +134,7 @@ extension ActionResult {
         case .sequence(let items):
             return !items.isEmpty && items.allSatisfy(\.dismissesPopup)
         default:
-            return true // includes openConfiguration, copyFile, saveFile: hide bar, then execute
-        }
-    }
-
-    /// Whether this result hands the user a detached, interactive surface (the system Look Up
-    /// popover) that stays on screen while the popup remains open. A scroll over such a surface —
-    /// the definition itself scrolls — must not auto-dismiss the popup, or the surface anchored to
-    /// it goes down with it. Presentation results that render inside the popup (`.text`, `.file`)
-    /// don't need this: their `.content` mode already suspends scroll dismissal.
-    public var suspendsScrollDismissal: Bool {
-        switch self {
-        case .showDefinition: return true
-        case .sequence(let items): return items.contains(where: \.suspendsScrollDismissal)
-        default: return false
+            return true // includes openConfiguration, copyFile, saveFile: hide the popup, then execute
         }
     }
 

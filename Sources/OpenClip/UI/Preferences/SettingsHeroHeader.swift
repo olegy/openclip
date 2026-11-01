@@ -81,7 +81,7 @@ struct SettingsHeroHeader: View {
 extension SettingsHeroHeader {
     /// The tile glyph for an action.
     ///
-    /// Copy, Cut and Paste draw as *text* in the popup bar — that is their icon — and a tile can
+    /// Actions with a *text* glyph as their icon (AI presets) can't fill a tile, which can
     /// only show a glyph, so those fall back to the symbol they carry for exactly this purpose.
     @MainActor
     static func glyph(for action: any Action, presented: ActionPresentationModel) -> ActionIcon {

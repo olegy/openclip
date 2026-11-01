@@ -79,10 +79,10 @@ extension SelectionRetrievalCoordinator {
             processIdentifier: app.processIdentifier
         )
         let openSelectionPolicy = OpenSelection.SelectionPolicy(
-            disabled: policy.disabled,
-            hotkeyOnly: policy.hotkeyOnly,
+            disabled: false,
+            hotkeyOnly: false,
             denyPaste: policy.denyPaste,
-            useMenuCopy: policy.useMenuCopy,
+            useMenuCopy: false,
             retrievalMode: OpenSelection.SelectionStrategy(rawValue: policy.retrievalMode.rawValue) ?? .axTextControl,
             gate: OpenSelection.SelectionGatePolicy(
                 skipRoles: policy.gate.skipRoles,

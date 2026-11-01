@@ -103,10 +103,18 @@ oc_is_adhoc() {
     [ "${1:-}" = "$OC_ADHOC_IDENTITY" ]
 }
 
-# Echoes the Team ID out of a "Developer ID Application: Name (TEAMID)" identity string, or
-# nothing when the identity is ad-hoc or carries no parenthesised team.
+# Echoes the Team ID of a signing identity — the certificate's organizationalUnitName — or nothing
+# when the identity is ad-hoc or a self-signed certificate without a team. The parentheses in an
+# identity name are not reliable: "Apple Development: you@mail.com (XXXXXXXXXX)" carries the
+# certificate's own id there, not the team.
 oc_team_from_identity() {
-    printf '%s\n' "${1:-}" | sed -n 's/.*(\([A-Z0-9]\{10\}\))[[:space:]]*$/\1/p'
+    local identity="${1:-}"
+    oc_is_adhoc "$identity" && return 0
+    [ -n "$identity" ] || return 0
+    security find-certificate -c "$identity" -p 2>/dev/null \
+        | openssl x509 -noout -subject -nameopt multiline 2>/dev/null \
+        | sed -n 's/^[[:space:]]*organizationalUnitName[[:space:]]*=[[:space:]]*\([A-Z0-9]\{10\}\)[[:space:]]*$/\1/p' \
+        | head -1
 }
 
 # Echoes every item inside an app bundle that carries a signature of its own, ordered deepest

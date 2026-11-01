@@ -1,112 +1,34 @@
-# Code Signing, Hardened Runtime & Notarization
+# Code Signing, Hardened Runtime & Releases
 
-How an OpenClip build goes from a local Release build to something macOS will open on a stranger's
-Mac, and what each step is defending against.
+How an OpenClip Lite build is signed, how a release reaches installed copies through Sparkle, and
+what each step is defending against.
 
 Inspect any build with [Apparency](https://mothersruin.com/software/Apparency/) or the commands in
-[Checking a build by hand](#checking-a-build-by-hand). A distributable build shows a Developer ID
-signature, the hardened runtime enabled, a stapled notarization ticket, and a Gatekeeper verdict of
-`Notarized Developer ID`.
+[Checking a build by hand](#checking-a-build-by-hand).
 
 ---
 
-## Two build modes
+## Build modes
 
-Signing is **opt-in**, and everything works without it.
+Signing is **opt-in**: a fresh clone builds, tests and runs with no certificate at all.
 
-| | Ad-hoc (default) | Local self-signed | Developer ID |
-|---|---|---|---|
-| Apple Developer account | not needed | not needed | required |
-| Network access | not needed | not needed | required (timestamp + notary) |
-| Hardened runtime | yes | yes | yes |
-| Entitlements | yes | yes | yes |
-| Opens on another Mac | no | no | yes |
-| Used for | local builds, tests, PR/fork CI | local builds with a stable signing identity | releases |
+| | Ad-hoc (default) | Apple Development (Lite's releases) |
+|---|---|---|
+| Apple Developer account | not needed | free Personal Team (Xcode → Settings → Accounts) |
+| Hardened runtime | no (see below) | yes |
+| Accessibility grant survives rebuilds | no | yes |
+| Notarized | no | no |
+| Used for | tests, PR CI | `install.sh` and `release.sh` on the release Mac |
 
-A fresh clone builds, packages, and runs with no certificate at all. The only thing an ad-hoc build
-cannot do is leave the machine that produced it: Gatekeeper has nothing to trust, so it refuses to
-launch. Everything else — the hardened runtime, the entitlements, the inside-out signing order — is
-identical in both modes, so a contributor is exercising the same code path a release does.
+The hardened runtime needs a Team ID. Its library validation only loads nested code signed by the
+same team, and ad-hoc or self-signed code has none, so a hardened ad-hoc app is killed by dyld at
+launch (`Library not loaded: @rpath/Core.framework … different Team IDs`). `sign_artifact.sh`
+therefore omits `--options runtime` (and the secure timestamp) for any identity without a Team ID,
+and `verify_signing.sh` only requires the hardened runtime when the signature carries one.
 
-```bash
-./scripts/package_app.sh                                # ad-hoc
-OPENCLIP_DEV_SIGN_IDENTITY="OpenClip Local Development" ./scripts/dev_run.sh # stable local identity
-OPENCLIP_SIGN_IDENTITY=auto ./scripts/package_app.sh    # Developer ID signed
-OPENCLIP_SIGN_IDENTITY=auto OPENCLIP_NOTARIZE=1 \
-    ./scripts/package_app.sh                            # signed, notarized, stapled
-./scripts/release_update.sh 1.4.0                       # full release; signing is mandatory
-```
-
-### Recommended: Xcode-managed development signing
-
-Apple recommends automatic signing: add your Apple account in **Xcode → Settings → Accounts**,
-select your team, and let Xcode create an **Apple Development** certificate. A Personal Team is
-available without paid program membership. You can also create the certificate from **Manage
-Certificates → + → Apple Development**.
-
-Use the team identifier from your Apple developer account for local builds:
-
-```bash
-OPENCLIP_DEV_TEAM="YOUR_TEAM_ID" ./scripts/dev_run.sh
-```
-
-This enables automatic signing with `Apple Development` and allows Xcode to update development
-signing assets using the account already signed into Xcode. It takes precedence over
-`OPENCLIP_DEV_SIGN_IDENTITY`. Without either variable, the launcher keeps ad-hoc signing.
-After switching signing identities, grant Accessibility once for that build. Normal permission
-requests do not reset TCC. Keep using the same team and bundle identifier for subsequent builds.
-
-Development signing and Developer ID distribution signing have different designated requirements,
-so switching between development and released builds may require a new Accessibility grant.
-
-References: [Apple's automatic signing workflow](https://help.apple.com/xcode/mac/current/en.lproj/dev60b6fbbc7.html)
-and [code signing requirements](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements).
-
-### Use an existing certificate without signing in
-
-If this Mac already has a valid development signing identity and its private key, no Apple sign-in
-or team ID is needed. List identities with `security find-identity -v -p codesigning`, then use
-the identity's SHA-1 fingerprint:
-
-```bash
-OPENCLIP_DEV_SIGN_IDENTITY="CERTIFICATE_SHA1" ./scripts/dev_run.sh
-```
-
-To remember the choice, save just that fingerprint on one line in `keys/dev-signing-identity`.
-This file is gitignored. Explicit environment variables take precedence; set
-`OPENCLIP_DEV_SIGN_IDENTITY=-` to run ad-hoc even when the file exists. Clones without local
-configuration continue to build ad-hoc.
-
-The dev launcher opens the `.app` through LaunchServices (`open`), as Finder does, rather than
-spawning `Contents/MacOS/OpenClip` directly. This gives permission requests the normal application
-launch context. After rebuilding, check both the app's permission status and its entry in
-**System Settings → Privacy & Security → Accessibility**.
-
-### Alternative: offline self-signed development certificate
-
-To keep Accessibility permission attached to repeated local builds, create a self-signed code
-signing certificate in **Keychain Access → Certificate Assistant → Create a Certificate**. Use a
-recognizable name (for example, `OpenClip Local Development`), identity type **Self Signed Root**,
-and certificate type **Code Signing**. Keep it in your login keychain. This identity is only for
-this Mac: it is not a trusted publisher identity, does not make builds distributable, and cannot
-replace Developer ID for releases or notarization.
-
-Find the exact identity name with:
-
-```bash
-security find-identity -v -p codesigning
-```
-
-Then run the development launcher with that name:
-
-```bash
-OPENCLIP_DEV_SIGN_IDENTITY="OpenClip Local Development" ./scripts/dev_run.sh
-```
-
-The override affects only `dev_run.sh`; project and release defaults remain ad-hoc. After the first
-signed launch, grant Accessibility to OpenClip once in System Settings. Normal permission prompts
-and the **Open Settings** button do not reset TCC. Use the explicit recovery action only if a grant
-is genuinely stale.
+The Team ID is read from the certificate's `organizationalUnitName`
+(`oc_team_from_identity`), never from the identity name: in
+`Apple Development: you@mail.com (XXXXXXXXXX)` the parentheses hold the certificate's own id.
 
 ## Configuration
 
@@ -114,65 +36,63 @@ is genuinely stale.
 
 1. `--identity <name>` on `sign_artifact.sh` or `verify_signing.sh`
 2. `OPENCLIP_SIGN_IDENTITY` in the environment
-3. `keys/signing.env`, if it exists
+3. `keys/signing.env`, if it exists (gitignored, like the whole `keys/` directory)
 4. `-` (ad-hoc)
 
-`OPENCLIP_SIGN_IDENTITY=auto` picks the single `Developer ID Application` identity in the keychain
-and fails if there is none or more than one, so `auto` can never silently pick a different team.
-
-`keys/signing.env` is a gitignored shell fragment — the whole `keys/` directory is ignored — that
-makes a local signed build a single command:
+On the release Mac `keys/signing.env` names the Apple Development certificate, so local installs
+and releases share one designated requirement:
 
 ```bash
-OPENCLIP_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
-NOTARY_KEY="$PROJECT_DIR/keys/AuthKey_XXXXXXXXXX.p8"
-NOTARY_KEY_ID="XXXXXXXXXX"
-NOTARY_ISSUER="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+OPENCLIP_SIGN_IDENTITY="Apple Development: you@mail.com (XXXXXXXXXX)"
 ```
 
-Notary credentials come from one of three groups, and `scripts/notarize_artifact.sh` takes the
-first that is complete:
+`security find-identity -v -p codesigning` lists it. If it reports `0 valid identities`, install
+the [Apple WWDR G3 intermediate](https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer)
+into the login keychain. The certificate lasts a year; renew it in Xcode and update the name.
 
-| Group | Variables |
-|---|---|
-| Keychain profile | `NOTARY_PROFILE` (from `xcrun notarytool store-credentials`) |
-| App Store Connect API key | `NOTARY_KEY`, `NOTARY_KEY_ID`, `NOTARY_ISSUER` |
-| Apple ID | `NOTARY_APPLE_ID`, `NOTARY_PASSWORD`, `NOTARY_TEAM_ID` |
+## Releases
 
-The Key ID is the `XXXXXXXXXX` in the `AuthKey_XXXXXXXXXX.p8` filename. The Issuer ID is a UUID
-shown above the key list in App Store Connect under **Users and Access › Integrations › Team
-Keys**; it is not stored in the key file. `NOTARY_KEY` accepts either a path or the key text
-itself, so a CI secret can be passed inline without ever touching the disk in a readable state.
+```bash
+./scripts/release.sh                     # build, sign, publish v<MARKETING_VERSION>
+./scripts/release.sh --no-upload         # build into build/release only
+./scripts/release.sh export-key <dir>    # back up the Sparkle private key
+```
 
-## The pipeline
+A release needs a clean tree, `HEAD` pushed to `origin/main`, a version not released before
+(bump `OPENCLIP_LITE_REVISION` in `project.yml`), and a `## <version>` section in `CHANGELOG.md`:
+it becomes the GitHub release notes and the notes in Sparkle's update window. `CFBundleVersion` is
+`OPENCLIP_UPSTREAM_BUILD.OPENCLIP_LITE_REVISION` (e.g. `23.5`), which is what Sparkle compares, so
+it grows with every revision and with every new upstream base. `release.sh`:
 
-`scripts/release_update.sh` runs these in order. `scripts/package_app.sh` runs the same steps
-minus the appcast.
+1. Checks the signing identity has a Team ID and that the Sparkle key in the login Keychain
+   (account `openclip-lite`) matches `SUPublicEDKey` in `project.yml`.
+2. Builds a universal Release app and re-signs it inside out (`sign_artifact.sh`).
+3. Verifies architectures and signature (`verify_universal.sh`, `verify_signing.sh --require any`).
+4. Zips the app, signs the zip with Sparkle's `sign_update`, and writes a one-item `appcast.xml`
+   with the changelog section as its release notes.
+5. Creates the GitHub Release `v<version>` at `HEAD` with the zip and `appcast.xml`.
 
-1. **Build** — `xcodebuild`, universal, deliberately left **ad-hoc signed**.
-2. **Sign** — `scripts/sign_artifact.sh` re-signs the finished bundle inside out.
-3. **Verify architectures** — `scripts/verify_universal.sh`.
-4. **Verify signature** — `scripts/verify_signing.sh --require developer-id`.
-5. **Notarize and staple** — `scripts/notarize_artifact.sh`.
-6. **Verify again** — `scripts/verify_signing.sh --require notarized`.
-7. **Archive** — `ditto` the stapled bundle into the release `.zip`.
-8. **Appcast** — Sparkle's `generate_appcast` signs the archive with the Ed25519 key.
-9. **Disk image** — built from the stapled app, then signed, notarized, stapled, and verified in
-   its own right.
+Sparkle checks once a day (`SUScheduledCheckInterval`) and never downloads or installs on its own
+(`SUAutomaticallyUpdate` and `SUAllowsAutomaticUpdates` are off): a found update shows its window
+and a dot on the menu bar icon, and installs only from the user's click. The About page has a
+**Check for Updates** link under the version. Installed copies read `SUFeedURL`
+(`https://github.com/olegy/openclip/releases/latest/download/appcast.xml`), which GitHub redirects
+to the newest release's appcast. Only the Release bundle (`com.olegy.openclip`) updates itself;
+the Debug build (`com.olegy.openclip.dev`) never does.
 
-Order is load-bearing in three places.
+**The Sparkle private key is the one thing that cannot be replaced.** Without it no installed copy
+accepts another update, and every Mac needs a manual reinstall. Back it up with `export-key` and
+restore it on another Mac with Sparkle's `generate_keys --account openclip-lite -f <file>`.
 
-- **Signing before archiving.** Obvious, but it also means the build step never needs the
-  certificate, so the slow part of a release can run before credentials are checked. The scripts
-  resolve the identity up front anyway, because a missing certificate should be a five-second
-  failure and not a five-minute one.
-- **Stapling before archiving.** Stapling writes the ticket into the bundle. A zip cut beforehand
-  would contain an unstapled app, and Gatekeeper would have to ask Apple at first launch — which
-  fails for anyone offline or behind a filtered network. It also means the Sparkle signature and
-  the Homebrew `sha256` describe the stapled bundle, because they are taken from the archive in
-  step 7.
-- **Appcast before the disk image.** `generate_appcast` scans the output directory for release
-  archives, so the `.dmg` is built after it has run.
+Releases are not notarized (that needs a paid Developer ID). A Mac that installs one by hand
+clears the download quarantine once:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/OpenClip.app
+```
+
+`scripts/package_app.sh` still builds a `.zip` and a styled `.dmg` for local inspection, and
+`scripts/notarize_artifact.sh` is kept for a Developer ID identity, but no release path uses them.
 
 ## Why the app is re-signed rather than signed by Xcode
 
@@ -237,25 +157,19 @@ Two rules when editing that file:
 
 ## What signing changes for users
 
-- **Gatekeeper stops refusing the app.** This is the whole point.
 - **The Accessibility grant survives updates.** An ad-hoc signature's designated requirement is a
-  bare `cdhash`, which changes with every build, so TCC can treat each update as a different
-  application. A stable signing identity gives TCC a stable designated requirement. A Developer ID
-  signature's requirement pins the bundle identifier and the Team ID instead:
+  bare `cdhash`, which changes with every build, so TCC treats each one as a different
+  application. The Apple Development signature pins the bundle identifier and the certificate:
 
   ```
-  identifier "com.openclip.OpenClip" and anchor apple generic
-    and certificate leaf[subject.OU] = <TEAMID>
+  identifier "com.olegy.openclip" and anchor apple generic
+    and certificate leaf[subject.CN] = "Apple Development: …" and certificate 1[field.…] exists
   ```
 
-  After one final re-grant on the first signed release, updates stop breaking Accessibility.
-- **The Team ID becomes a commitment.** Sparkle checks that an update is signed by the same team
-  as the installed app. Changing teams later means installed copies reject every future update and
-  every user has to reinstall by hand. The first notarized release is the moment to be sure the
-  certificate belongs to the account that will own OpenClip long-term.
-- **The first signed release still updates cleanly.** The installed copies are ad-hoc, so Sparkle
-  has no team to compare against and validates the Ed25519 appcast signature only. Release notes
-  for that version should tell users to re-grant Accessibility once.
+  Renewing the certificate changes that requirement, so Accessibility and Screen Recording are
+  granted once more after the first release signed with the new one.
+- **The Team ID is a commitment.** Sparkle checks that an update is signed by the same team as the
+  installed app. Changing teams means installed copies reject every future update.
 
 ## Checking a build by hand
 
@@ -265,31 +179,11 @@ Two rules when editing that file:
 APP=build/DerivedData/Build/Products/Release/OpenClip.app
 
 codesign --verify --deep --strict --verbose=2 "$APP"   # structurally valid
-codesign -dvv "$APP"                                   # flags contain "runtime"; Authority=Developer ID
-                                                       # Application; Timestamp present; TeamIdentifier set
+codesign -dvv "$APP"                                   # flags contain "runtime"; Timestamp present;
+                                                       # TeamIdentifier set
 codesign -d --entitlements - --xml "$APP"              # only the apple-events entitlement
-codesign -d -r- "$APP"                                 # designated requirement pins identifier + team
-xcrun stapler validate "$APP"                          # "The validate action worked!"
-spctl -a -vv -t exec "$APP"                            # accepted, source=Notarized Developer ID
-spctl -a -vv -t open --context context:primary-signature build/OpenClip.dmg
-```
-
-`spctl` above assesses a file with no quarantine attribute. `verify_signing.sh --require notarized`
-repeats the assessment on a quarantined copy, which is the state a download actually arrives in:
-
-```bash
-xattr -w com.apple.quarantine "0083;$(printf '%x' "$(date +%s)");Safari;$(uuidgen)" /tmp/OpenClip.app
-spctl -a -vv -t exec /tmp/OpenClip.app
-```
-
-## Verifying a published download
-
-Independent of signing, release artifacts carry a Sigstore build-provenance attestation binding
-them to the tag and workflow run that produced them:
-
-```bash
-gh attestation verify OpenClip-v1.4.0.dmg --repo ganeshmshetty/openclip \
-    --signer-workflow ganeshmshetty/openclip/.github/workflows/release.yml
+codesign -d -r- "$APP"                                 # designated requirement pins identifier + certificate
+spctl -a -vv -t exec "$APP"                            # rejected: not notarized (expected for Lite)
 ```
 
 ## Troubleshooting
@@ -305,50 +199,8 @@ gh attestation verify OpenClip-v1.4.0.dmg --repo ganeshmshetty/openclip \
 | `resource fork, Finder information, or similar detritus not allowed` | An extended attribute on the bundle. `com.apple.FinderInfo` is the usual culprit; dmgbuild's `hide_extensions` writes one, which is why `make_dmg.sh` does not use it. Clear with `xattr -cr`. |
 | `The staple and validate action failed! Error 65` | No ticket for that exact build. Re-notarize; a ticket is tied to the cdhash. |
 
-## Continuous integration
+## No CI
 
-`.github/workflows/ci.yml` builds **ad-hoc on every push and pull request**, and that is the right
-choice rather than a limitation: pull requests from forks get no access to secrets, so a signing
-certificate there would only ever work for collaborator branches, and a check that silently does
-nothing for outside contributors is worse than one that behaves identically for everyone. An
-ad-hoc build still exercises the entire signing path — hardened runtime, real entitlements, and the
-inside-out pass over Sparkle's nested helpers — and a dedicated step verifies the app unpacked from
-the archive, so the hardening regression that shipped unnoticed for months cannot recur.
-
-`.github/workflows/release.yml` signs, notarizes, and staples when the secrets below are present.
-
-| Secret | Value |
-|---|---|
-| `MACOS_CERTIFICATE_P12` | The Developer ID Application certificate and private key, base64 encoded: `base64 -i Certificates.p12 \| pbcopy` |
-| `MACOS_CERTIFICATE_PASSWORD` | The password set when exporting that .p12 from Keychain Access |
-| `NOTARY_KEY_P8` | The full contents of `AuthKey_XXXXXXXXXX.p8`, including the BEGIN and END lines |
-| `NOTARY_KEY_ID` | The `XXXXXXXXXX` from that filename |
-| `NOTARY_ISSUER_ID` | The issuer UUID from App Store Connect, **Users and Access › Integrations › Team Keys** |
-
-`SPARKLE_ED_PRIVATE_KEY` and `TAP_GITHUB_TOKEN` are separate and already configured.
-
-There is deliberately **no secret for the Team ID or the certificate name**. The workflow imports
-the .p12 into a temporary keychain that holds exactly one Developer ID Application identity and
-then runs with `OPENCLIP_SIGN_IDENTITY=auto`, which resolves the identity from that keychain and
-fails loudly if it finds none or more than one. A Team ID stored separately is a value that can
-drift out of step with the certificate it is supposed to describe.
-
-### Behaviour when secrets are missing
-
-All five are required **together**. A certificate without notary credentials would sign
-successfully and then fail minutes later at the notarization step, so the workflow checks for the
-whole set up front. If any are absent — a fork, or secrets rotated away — the release still builds
-and publishes, ad-hoc signed, with a `::warning::` naming exactly which secrets were missing.
-
-This keeps tagging working under any configuration, but the degradation is real: **an ad-hoc
-release is refused by Gatekeeper on every Mac except the one that built it, and must not be
-published as a real release.** Check the run's warnings before announcing a version.
-
-### How the certificate is handled
-
-Plain `security` commands, no third-party action — the same reasoning that pins the Sparkle
-download by SHA-256 applies to anything that handles OpenClip's signing key. The keychain is
-created under `RUNNER_TEMP`, is never made the default keychain, is only prepended to the user
-search list, and is deleted by a step marked `if: always()` so a failed or cancelled run takes the
-private key with it. The .p8 is passed to `notarize_artifact.sh` as inline PEM text through the
-environment and never written into the workspace.
+There is no GitHub Actions workflow. Tests run locally (`scripts/test.sh`), and releases are built
+locally by `release.sh`, because the signing certificate and the Sparkle key live in this Mac's
+login Keychain.

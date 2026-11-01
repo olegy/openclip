@@ -116,7 +116,7 @@ reject the package, which is then logged (category `extensions`) rather than sil
 | `requirements.input` | String | Input contract: `optional`, `text` (default), `liveSelection`, or `editableSelection`. Legacy `requiresSelection`/`requires-selection` maps `true` to `text` and `false` to `optional`; do not combine legacy and new keys. |
 | `requirements.requiresPasteTarget` | Boolean | Optional destination gate. `true` requires a confirmed Paste-capable target; `false` or omission means no paste target is required, not that paste is forbidden. Dash alias: `requires-paste-target`. |
 
-`text` accepts nonblank selection, clipboard, or OCR text. `liveSelection` requires text from the
+`text` accepts nonblank selection or clipboard text. `liveSelection` requires text from the
 current live selection. `editableSelection` additionally requires confirmed editability of that
 selection; unknown editability fails closed. Paste destination support is independent from input
 source, so clipboard-derived transformations can still be pasted into a confirmed destination.

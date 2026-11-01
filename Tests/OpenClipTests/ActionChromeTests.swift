@@ -3,12 +3,12 @@ import XCTest
 @testable import OpenClip
 
 final class ActionChromeTests: XCTestCase {
-    func testBuiltinCopyActionChrome() {
-        let copy = CopyAction()
-        XCTAssertEqual(copy.chrome.badge, .none)
-        XCTAssertEqual(copy.chrome.rowStyle, .standard)
-        XCTAssertEqual(copy.chrome.popupBehavior, .perform)
-        XCTAssertEqual(copy.chrome.source, .builtin)
+    func testBuiltinCalculateActionChrome() {
+        let calculate = CalculateAction()
+        XCTAssertEqual(calculate.chrome.badge, .none)
+        XCTAssertEqual(calculate.chrome.rowStyle, .standard)
+        XCTAssertEqual(calculate.chrome.popupBehavior, .perform)
+        XCTAssertEqual(calculate.chrome.source, .builtin)
     }
 
     func testCustomActionChrome() {

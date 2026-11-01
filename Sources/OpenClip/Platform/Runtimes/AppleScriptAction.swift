@@ -88,7 +88,6 @@ public struct AppleScriptAction: ConfigurableAction, ActionWithRules {
             text: text,
             sourceApp: context.selection.sourceApp,
             cursorPosition: context.selection.cursorPosition,
-            mouseDownLocation: context.selection.mouseDownLocation,
             selectionBounds: context.selection.selectionBounds,
             timestamp: context.selection.timestamp,
             appPolicy: context.selection.appPolicy,

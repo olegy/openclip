@@ -47,10 +47,6 @@ final class DeepLinkRouter {
         switch command {
         case .openSettings:
             openPreferences()
-        case .pause:
-            IntegrationSettings.pause()
-        case .resume:
-            IntegrationSettings.resume()
         }
     }
 

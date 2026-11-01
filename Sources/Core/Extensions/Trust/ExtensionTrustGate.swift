@@ -42,7 +42,7 @@ public enum ExtensionGateReason: Sendable, Equatable {
 
 /// Placeholder action registered in place of a package's real actions when the package must not
 /// run (not enabled / files changed / revoked / incompatible). Keeps the package discoverable in
-/// the bar and Preferences; clicking it surfaces a review toast. `isEnabled` returns true so the
+/// the palette and Preferences; clicking it surfaces a review toast. `isEnabled` returns true so the
 /// row appears — the gate, not the enable toggle, is what blocks execution.
 public struct GatedExtensionAction: Action {
     public let packageID: String

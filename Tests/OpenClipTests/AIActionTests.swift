@@ -15,7 +15,6 @@ final class AIActionTests: XCTestCase {
     func testStandaloneAIUsesControllerFlowWithoutDismissingItsSelection() {
         var events: [String] = []
         let view = PopupView(
-            actions: [AIAction(presetID: "rewrite", title: "Rewrite")],
             context: makeContext(text: "Example"),
             onExitSearch: { events.append("exit") },
             onResult: { _ in events.append("ordinary result") },
@@ -48,12 +47,20 @@ final class AIActionTests: XCTestCase {
         }
     }
 
+    /// With no text to work on, a preset is not offered: the palette then shows the "No text
+    /// selected" toast instead of a list of AI presets that have nothing to run on.
+    func testPresetNeedsText() {
+        let action = AIAction(presetID: "proofread", title: "Proofread")
+        XCTAssertFalse(action.isEnabled(for: makeContext(text: "")))
+        XCTAssertFalse(action.isEnabled(for: makeContext(text: "  \n ")))
+    }
+
     func testAIActionIconDefaultMatchesPresetIcon() {
         let action = AIAction(presetID: "proofread", title: "Proofread")
         XCTAssertEqual(action.icon, .text("Proofread"))
     }
 
-    func testAISettingsSurviveMovingBetweenGroupAndMainBar() throws {
+    func testAISettingsResolveThroughAITools() throws {
         let store = MemorySettingsStore()
         let presenter = ActionCustomizationManager(settingsStore: store)
         let bindings = ActionBindingStore(settingsStore: store)
@@ -61,12 +68,10 @@ final class AIActionTests: XCTestCase {
         let coordinator = ActionCoordinator(registry: registry, settingsStore: store)
         let action = AIAction(presetID: "rewrite", title: "Rewrite")
         coordinator.register(action: action)
-        presenter.setOverride(for: action.id, title: "Polish", symbol: "pencil", text: nil)
+        presenter.setOverride(for: action.id, title: "Polish", symbol: "pencil")
         XCTAssertTrue(ActionIdentity.isBindable(action))
         XCTAssertEqual(bindings.setAlias("polish", for: action.id), .accepted)
 
-        coordinator.setAIActionPlacement(actionIDs: [action.id], standalone: true)
-        coordinator.setAIActionPlacement(actionIDs: [action.id], standalone: false)
         let grouped = AIToolsAction(settingsStore: store).subActions(in: coordinator.actions)
         XCTAssertEqual(grouped.map(\.id), [action.id])
         let groupedAction = try XCTUnwrap(grouped.first)

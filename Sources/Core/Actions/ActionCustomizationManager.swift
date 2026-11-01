@@ -24,18 +24,15 @@ public struct ActionPresentationModel: Sendable, Equatable {
 public struct ActionOverride: Codable, Sendable, Equatable {
     public var customTitle: String?
     public var customIconSymbol: String?
-    public var customIconText: String?
     public var deliveryPreference: ResultDeliveryPreference?
     
     public init(
         customTitle: String? = nil,
         customIconSymbol: String? = nil,
-        customIconText: String? = nil,
         deliveryPreference: ResultDeliveryPreference? = nil
     ) {
         self.customTitle = customTitle
         self.customIconSymbol = customIconSymbol
-        self.customIconText = customIconText
         self.deliveryPreference = deliveryPreference
     }
 }
@@ -65,7 +62,7 @@ public final class ActionCustomizationManager: ObservableObject, ActionPresentin
         overrides[actionID]
     }
     
-    public func setOverride(for actionID: String, title: String?, symbol: String?, text: String?) {
+    public func setOverride(for actionID: String, title: String?, symbol: String?) {
         var existing = overrides[actionID] ?? ActionOverride()
         
         let trimmedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -73,13 +70,9 @@ public final class ActionCustomizationManager: ObservableObject, ActionPresentin
         
         let trimmedSymbol = symbol?.trimmingCharacters(in: .whitespacesAndNewlines)
         existing.customIconSymbol = (trimmedSymbol?.isEmpty == false) ? trimmedSymbol : nil
-        
-        let trimmedText = text?.trimmingCharacters(in: .whitespacesAndNewlines)
-        existing.customIconText = (trimmedText?.isEmpty == false) ? trimmedText : nil
-        
+
         if existing.customTitle == nil
             && existing.customIconSymbol == nil
-            && existing.customIconText == nil
             && existing.deliveryPreference == nil {
             overrides.removeValue(forKey: actionID)
         } else {
@@ -95,7 +88,6 @@ public final class ActionCustomizationManager: ObservableObject, ActionPresentin
 
         if existing.customTitle == nil
             && existing.customIconSymbol == nil
-            && existing.customIconText == nil
             && existing.deliveryPreference == nil {
             overrides.removeValue(forKey: actionID)
         } else {
@@ -130,9 +122,6 @@ public final class ActionCustomizationManager: ObservableObject, ActionPresentin
 
     public func popupIcon(for action: any Action) -> ActionIcon {
         let ov = override(for: action.id)
-        if let text = ov?.customIconText, !text.isEmpty {
-            return .text(text)
-        }
         if let symbol = ov?.customIconSymbol, !symbol.isEmpty {
             return ActionIcon.resolve(from: symbol)
         }

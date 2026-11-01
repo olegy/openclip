@@ -39,7 +39,7 @@ final class SettingsObservation<T: Sendable>: ObservableObject {
 
 /// Binds a view property to a `SettingKey`, reading and writing through `SettingsStore`.
 ///
-///     @Setting(SettingKey.popupTheme) private var theme
+///     @Setting(SettingKey.popupThemeColor) private var theme
 ///
 /// Use `$theme` for a `Binding`, matching `@AppStorage`'s ergonomics.
 @propertyWrapper

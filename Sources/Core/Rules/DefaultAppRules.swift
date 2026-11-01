@@ -7,7 +7,7 @@ import Foundation
 public enum DefaultAppRules: Sendable {
     /// Scoped identifier prefixes for targeting an app by something other than its bundle ID:
     /// `process:<name>` matches the target's process name and `path:<executable>` its executable
-    /// path. Plain entries keep matching bundle IDs, and `:menu-copy-apps:` stays a group alias.
+    /// path. Plain entries keep matching bundle IDs.
     public static let processNamePrefix = "process:"
     public static let executablePathPrefix = "path:"
 

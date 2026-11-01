@@ -1,161 +1,88 @@
 # Text Selection Subsystem Architecture
 
-The text selection subsystem detects user text selection events across all macOS applications and extracts selected text non-destructively, then hands it to the popup.
+Nothing reads the selection until a hotkey fires. The palette hotkey (and each per-action hotkey) reads the frontmost app's selection on demand, falls back to the clipboard when there is none, and hands a [`SelectionContext`](../../Sources/Core/Selection/SelectionContext.swift) to the popup. There is no passive selection monitoring.
 
 ---
 
-## Selection Detection Architecture
-
-The subsystem consists of three primary components:
+## The Hotkey Read
 
 ```
-+------------------------+   +-----------------------+
-| MacSelectionMonitor |-->| RuleEngine |
-| (Global Mouse/AX Event)|   | (Per-App Policy) |
-+------------------------+   +-----------------------+
- |                |
- | builds         v
- |          +-----------------------+
- |          | SelectionContext |
- |          +-----------------------+
- v                |
-+------------------------+      |
-| SelectionRetrievalCoordinator |      |
-| (Gate + Mode Routing) |      |
-+------------------------+      |
-                        v
-             +-----------------------+
-             | onSelection callback |
-             | (PopupWindowController) |
-             +-----------------------+
+⌥⌘C ──> HotkeyManager.handleTogglePopup
+          └── resolvePaletteTrigger
+                └── collectTrigger(allowsEmptyText: true, skipsCopyOnCollapsedCaret: true)
+                      └── collectTriggerResponse
+                            ├── triggerAllowed (AppFilter, identifiable app)
+                            ├── CollapsedCaretProbe ──> no ⌘C when the caret is collapsed
+                            ├── RuleEngine.resolvePolicies ──> AppPolicyContext
+                            ├── PopupWindowController.preparePasteProbe (in parallel)
+                            ├── SelectionRetrievalCoordinator.retrieveResponse (OpenSelection)
+                            └── clipboard fallback / empty context
+        ──> PopupWindowController.show(for:pasteAvailable:)
 ```
 
-1. **[`MacSelectionMonitor`](../../Sources/OpenClip/Platform/MacSelectionMonitor.swift)**: Listens for mouse release events (`leftMouseUp`) and keyboard selection gestures (⌘A select-all, ⇧+arrow) and dispatches retrieval.
-2. **`SelectionRetrievalCoordinator`** (from `OpenSelection` package via [`OpenSelectionBridge`](../../Sources/OpenClip/Platform/Selection/OpenSelectionBridge.swift)): Applies the gate, resolves the app's retrieval mode from [`AppPolicyContext`](../../Sources/Core/Rules/AppRule.swift), and routes to the matching strategy.
-3. **Context assembly**: `MacSelectionMonitor` resolves app rules via [`RuleEngine`](../../Sources/Core/Rules/RuleEngine.swift), builds a [`SelectionContext`](../../Sources/Core/Selection/SelectionContext.swift), and notifies subscriber callbacks (such as `PopupWindowController`).
+[`HotkeyManager`](../../Sources/OpenClip/Platform/HotkeyManager.swift) registers the palette shortcut (`KeyboardShortcuts.Name.togglePopup`, ⌥⌘C by default):
 
-The monitor snapshots the window under a mouse press and rejects the release if that window
-moved, resized or disappeared. This avoids retrieving an old selection from the editor that
-remains focused while its title bar is dragged. New presses and switches away from the source
-process cancel pending automatic reads and clear the shortcut cache. Queued notifications for
-apps no longer frontmost, the source app's own activation, and OpenClip's popup activation are
-ignored. The monitor rechecks the source PID before caching or presenting results after async
-work. At the copy boundary, OpenSelection's [`AutomaticCopyCapture`](https://github.com/ganeshmshetty/OpenSelection#passive-monitoring)
-requires an enabled Command-C menu shortcut, then rechecks cancellation, the frontmost process
-and the overlay guard before invoking the copy trigger. The bounded menu probe runs off the
-main actor. Native AX retrieval and the explicit hotkey use their existing behavior. See
-[current limitations](known-debt.md#selection-retrieval).
+1. **Toggle and cancel**: a press while a read is still in flight cancels it; a press while the popup is visible hides it.
+2. **Gating**: `triggerAllowed(frontmost:)` refuses excluded apps (`AppFilter`) and transient helpers with no bundle ID, name or path.
+3. **Collapsed caret**: [`CollapsedCaretProbe`](../../Sources/OpenClip/Platform/Selection/CollapsedCaretProbe.swift) checks, off the main actor with a 0.25 s AX messaging timeout, whether the focused text control (`AXTextField`, `AXTextArea`, `AXSearchField`, `AXComboBox`) reports a zero-length `AXSelectedTextRange` and no selected text. If so, the read runs without the copy fallback, so editors that copy the current line on an empty ⌘C (Obsidian, VS Code) fall through to the clipboard. A missing range counts as unknown and keeps the copy fallback. Per-action hotkeys do not run this probe.
+4. **Read**: `collectTriggerResponse` resolves the app's `AppPolicyContext` through `RuleEngine`, starts the paste-availability probe alongside, and calls `SelectionRetrievalCoordinator.retrieveResponse` (through [`OpenSelectionBridge`](../../Sources/OpenClip/Platform/Selection/OpenSelectionBridge.swift)) with `trigger: .keyboardShortcut` and `requireCopyEvidence: false`. A synthetic copy is authorized only while the same app is still frontmost and the request is current; otherwise the read ends as `.targetChanged` or `.cancelled`. HTML, RTF and pasteboard flavors of the result are kept.
+5. **Clipboard fallback**: if the read returns no text, the current `NSPasteboard.general` string is used and the context is flagged `isClipboardFallback` (`source == .clipboard`). Actions whose `ActionChrome.requiresLiveSelection` is true (extensions declaring `input: "liveSelection"`) are then left out of the palette by `ActionRegistry`; every other action runs on the clipboard text. `resolvePaletteTrigger` treats files copied in Finder as no clipboard text (`HotkeyManager.clipboardHoldsFiles`).
+6. **Empty context**: with neither a selection nor clipboard text, the palette still opens on an empty context for standalone actions (`input: "optional"`). If there are none, `showSearch` shows a "No text selected or on clipboard" toast instead.
+7. **Limits**: text over `Constants.maxTextLength` (10 MB) ends the read as `.tooLarge`; whitespace-only text counts as empty.
 
-The shared capture and window-geometry implementations live in OpenSelection. OpenClip retains
-only its app-specific monitor lifecycle (including hold-to-trigger and cached selections).
+Per-action hotkeys (`handleActionHotkey`) run on the open palette's context when the popup is visible, and otherwise go through the same `collectTrigger` without empty input.
+
+`resolveSynchronousTrigger` is the synchronous variant used when there is no frontmost app (common during clipboard-manager handoffs): it skips per-app gating and goes straight to the clipboard or an empty context.
+
+Each read logs its outcome under the `selection` category with a trace ID (`SelectionTriggerResponse`, `SelectionReadStatus`); selected text is never logged publicly.
 
 ---
 
-## Retrieval: Resolver, Gate, and Strategies
+## Retrieval: Gate and Strategies
 
-Every retrieval request (mouse-up drag, ⌘A/⇧+arrow gesture, or the ⌥⌘C hotkey) runs through `SelectionRetrievalCoordinator.retrieve(for:policy:cursor:)`:
+Selection retrieval lives in the `OpenSelection` package; `OpenSelectionBridge` maps OpenClip's Core types (`AppIdentity`, `AppPolicyContext`, `CursorClass`, `TextResult`) onto it and routes its diagnostics into `Log` (`OpenClipDiagnosticsSink`).
 
-1. **Fresh AX snapshot** — `AXElementInspector.inspect()` resolves the focused application, then the focused UI element *from that application*, never from the system-wide element (the classic source of stale reads). It collects the role, parent/container roles, selection attributes, and selection bounds. The blocking snapshot runs on the dedicated `com.openclip.ax-inspect` queue, raced against `Constants.axReadTimeout` (0.5 s) via a once-resume gate; a hung or unresponsive target yields `nil` instead of stalling the popup.
-2. **Gate** — [`SelectionGatePolicy`](../../Sources/Core/Rules/SelectionGatePolicy.swift) decides whether to attempt retrieval at all:
-   - `skipRoles` — AX roles that can never hold a text selection (buttons, menus, scrollbars, …) are rejected up front.
-   - `allowedCursors` — the cursor class (from `CursorClassifier` in `OpenSelection`) must suggest a text context; `.unknown` is never a reason to block.
-3. **Strategy chain** — a single canonical fallback order selects the first working strategy. The app's [`SelectionRetrievalMode`](../../Sources/Core/Rules/SelectionRetrievalMode.swift) picks the *entry point* into that chain; retrieval then runs that strategy and every strategy below it. An app with no rule starts at `ax-text-control` (the top), which is the "auto" behavior.
+1. **Fresh AX snapshot**: `AXElementInspector.inspect()` resolves the focused application, then the focused element of that application (never the system-wide element), raced against `Constants.axReadTimeout` (0.5 s). A hung app yields no snapshot instead of stalling the hotkey.
+2. **Gate**: [`SelectionGatePolicy`](../../Sources/Core/Rules/SelectionGatePolicy.swift) rejects AX roles that cannot hold a text selection (`skipRoles`) and cursors that do not suggest a text context (`allowedCursors`; `.unknown` never blocks).
+3. **Strategy chain**: one canonical order, `ax-text-control → ax-web-area → menu-copy → keyboard-copy`. The app's [`SelectionRetrievalMode`](../../Sources/Core/Rules/SelectionRetrievalMode.swift) picks the entry point; the first non-blank result wins.
 
-The canonical chain:
-
-```
-ax-text-control → ax-web-area → menu-copy → keyboard-copy
-```
-
-```mermaid
-flowchart TD
-  Start[Retrieval Request] --> Inspect[Fresh AX snapshot<br/>race axReadTimeout 0.5 s]
-  Inspect -- nil timeout --> Nil[no selection]
-  Inspect -- snapshot --> Gate{SelectionGatePolicy}
-  Gate -- role in skipRoles --> Nil
-  Gate -- cursor not allowed --> Nil
-  Gate -- select-all on non-text --> Nil
-  Gate -- pass --> Chain[Run chain from preferred entry point<br/>first non-blank result wins]
-  Chain --> AXText[AXTextControlStrategy]
-  Chain --> AXWeb[AXWebAreaStrategy<br/>settle-retry x6, fresh inspect each]
-  Chain --> MenuCopy[Menu copy]
-  Chain --> KBCopy[Keyboard copy]
-  AXText --> Out[TextResult]
-  AXWeb --> Out
-  MenuCopy --> Out
-  KBCopy --> Out
-```
-
-Chain suffix per preferred mode:
-
-| Preferred mode | Strategies run (in order) |
+| Mode | Strategy |
 | :--- | :--- |
-| `ax-text-control` (default / no rule) | AX text → (embedded web-area detected? AX web area → keyboard copy; otherwise AX text → keyboard copy) |
-| `ax-web-area` (browsers) | AX web area → keyboard copy |
-| `browser-script` (legacy alias) | AX web area → keyboard copy |
-| `menu-copy` | menu copy |
-| `keyboard-copy` | keyboard copy |
+| `ax-text-control` (default) | Reads `kAXSelectedTextAttribute` (falling back to `value` + `selectedTextRange`). No pasteboard side effects. Falls through to the web-area strategy when an embedded web area is detected, then to keyboard copy. |
+| `ax-web-area` (browsers) | Reads `kAXSelectedTextMarkerRange` → `AXStringForTextMarkerRange`, re-inspecting up to `webAreaSettleMaxRetries` (6) times `webAreaSettleInterval` (50 ms) apart. Falls back to keyboard copy (e.g. Google Docs canvas). |
+| `browser-script` (legacy alias) | Same as `ax-web-area`. |
+| `menu-copy` (terminals) | Presses the app's **Edit ▸ Copy** menu item through AX and reads the pasteboard. |
+| `keyboard-copy` (code editors, Electron apps) | Synthesizes ⌘C and reads the pasteboard. |
 
-Web selections run directly through native Accessibility (`AXWebArea`), reading `kAXSelectedTextMarkerRange` in <1 ms without spawning subprocesses or requiring Apple Events permissions. If Accessibility yields no text (e.g. Google Docs canvas or custom editors), the coordinator falls back to `keyboard-copy`.
+### The copy engine
 
+Both copy modes run through OpenSelection's `PasteboardCopyEngine`: archive every pasteboard item, run the trigger, poll for an advanced `changeCount` with non-empty text (up to `Constants.pasteboardCopyTimeout`, 0.25 s, or `safariPasteboardCopyTimeout`, 0.4 s, for browsers), read it, then restore the archived items before returning. The restore is tagged with the `org.nspasteboard.TransientType` and `org.nspasteboard.AutoGeneratedType` markers so clipboard managers ignore it.
 
-### Retrieval modes
+---
 
-| Mode | kebab-case key | Strategy |
+## Per-App Policy
+
+[`RuleEngine`](../../Sources/Core/Rules/RuleEngine.swift) resolves an [`AppPolicyContext`](../../Sources/Core/Rules/AppRule.swift) (`retrievalMode`, `denyPaste`, `gate`) from the built-in [`DefaultAppRules.catalog`](../../Sources/Core/Rules/DefaultAppRules.swift). It matches the app's identity (bundle ID, or a `process:` / `path:` identifier for bundle-less apps, with `.*` prefix and `*` wildcards); later rules override earlier ones field by field. There are no user-editable rules.
+
+| Group | Applications | Policy |
 | :--- | :--- | :--- |
-| AX native text control | `ax-text-control` | `AXTextControlStrategy` reads `kAXSelectedTextAttribute` (falling back to `value` + `selectedTextRange` substring) and the selection bounds. Zero pasteboard side-effects. Default. |
-| AX web area | `ax-web-area` | `AXWebAreaStrategy` reads `kAXSelectedTextMarkerRange` → `AXStringForTextMarkerRange` (fallback `selectedText`). Includes a **settle-retry** loop: the snapshot is re-inspected fresh on every retry (up to `webAreaSettleMaxRetries` = 6, `webAreaSettleInterval` = 50 ms apart) so text appearing after focus is observed instead of a frozen target. `AXElementInspector` walks up to 25 ancestor levels and searches the window on focus mismatch. |
-| Browser script (legacy) | `browser-script` | Formerly used AppleScript `execute javascript`; now maps directly to `ax-web-area` with `keyboard-copy` fallback to eliminate subprocess latency and permission friction. |
-| Menu copy | `menu-copy` | `PasteboardCopyEngine` archives the pasteboard, AXPresses the app's **Edit ▸ Copy** menu item (matched by action identifier `copy:`, ⌘C key equivalent, or localized title via `AXMenuNavigator`), polls for an advanced `changeCount` with non-empty text, then restores. The press shares `inspectGate` and uses `axReadTimeout`, same as inspect. Used for terminals. |
-| Keyboard copy | `keyboard-copy` | The same engine with a synthesized ⌘C key event (`SessionEventTapPoster`) as the trigger. Used for custom code editors and Electron apps whose AX selection reads are unreliable. |
-
-### The copy engine and transient markers
-
-Both copy modes run through [`PasteboardCopyEngine`](../../Sources/OpenClip/Platform/PasteboardCopyEngine.swift): archive every type of every pasteboard item → run the trigger → poll every 2 ms up to a per-app timeout (`pasteboardCopyTimeout` 0.25 s, or `safariPasteboardCopyTimeout` 0.6 s for browsers) for an advanced `changeCount` yielding non-empty text (a `changeCount` advance with empty content keeps polling, covering the transient clipboard race; recopying identical text succeeds as long as `changeCount` advances) → read the new string → restore the archived items **synchronously before returning**, tagged with the **nspasteboard markers** `org.nspasteboard.TransientType` and `org.nspasteboard.AutoGeneratedType` (empty data). The markers tell clipboard managers to skip the restore as a user-visible copy. The clipboard is therefore clean by the time retrieval returns; there is no lingering visibility window.
-
-### Per-app routing (default catalog)
-
-`DefaultAppRules.catalog` assigns modes to app groups; `RuleEngine.resolvePolicies` matches the frontmost app's identity (bundle ID, or a `process:`/`path:` identifier for bundle-less apps) against default + user rules (with `.*` prefix / `*` wildcards). User rules in `~/.openclip/rules.json` override per-key — see `docs/user-guide/app-rules.md` for the JSON keys.
-
-| Group | Target Application Category | Mode |
-| :--- | :--- | :--- |
-| `safariGroup` | Safari & WebKit-based browsers | `ax-web-area` |
-| `chromiumGroup` | Chromium-based browsers | `ax-web-area` |
-| `firefoxGroup` | Firefox & Gecko-based browsers | `ax-web-area` |
-| `arcGroup` | Arc browsers | `ax-web-area` |
-| `keyboardCopyApps` | Code editors, IDEs, markdown & note apps | `keyboard-copy` |
+| `nativeApps` | Native AppKit apps | `ax-text-control` |
+| `safariGroup`, `chromiumGroup`, `firefoxGroup`, `arcGroup` | Browsers | `ax-web-area` |
+| `keyboardCopyApps` | Code editors, IDEs, markdown and note apps | `keyboard-copy` |
 | `menuCopyApps` | Terminal emulators | `menu-copy` |
-| `denyPasteApps` | Applications requiring paste suppression | `denyPaste: true` |
-| default | All other standard applications | `ax-text-control` |
+| `denyPasteApps` | Apps where pasting over a selection is unreliable | `denyPaste: true` |
+| default | Everything else | `ax-text-control` |
+
+`denyPaste` feeds `PasteAvailability`, which decides both whether the palette offers Paste/Cut and whether a result is pasted or copied (see [Popup Window](popup-window.md)).
 
 ---
 
-## Shortcut Clipboard Fallback & Synchronous Resolution
+## Privacy
 
-The retrieval path above applies to *passive selection monitoring*. The global toggle shortcut ([`HotkeyManager`](../../Sources/OpenClip/Platform/HotkeyManager.swift)) runs a strictly **synchronous resolution pipeline** on `@MainActor` without incurring asynchronous AX query latency:
-
-1. **Monitored Selection Reuse**: The hotkey checks `selectionMonitor.synchronousSelection(for: frontmostBundleID)`. If the user recently selected text in the active application and that selection has not expired (`Constants.selectionMaxAge` = 30 s) or been cleared by caret navigation / typing, the monitored selection is reused immediately.
-2. **Clipboard Fallback**: If no valid monitored selection exists, OpenClip falls back to the current contents of `NSPasteboard.general` so the search palette still has input to act on.
-   - The context is flagged `SelectionContext.isClipboardFallback`; `PopupWindowController.show` filters available actions down to **Paste** (and AI Tools launcher).
-3. **Empty Context Fallback**: If the clipboard is also empty, an empty selection context is created with the frontmost app's identity, allowing standalone actions to run.
-
-Passive selection monitoring continues even when "Appear Automatically" is disabled (`isAppEnabled == false` or `hotkeyOnly: true`), updating `latestSelection` and pre-warming the search index in the background so pressing the shortcut opens the palette with zero perceptual delay. Both passive mouse and keyboard paths withhold synthetic copy fallback under those settings; native AX reads still populate the cache. The explicit hold gesture delivers straight from `handleMouseDown` and stays unaffected by `isAppEnabled`.
-
-The hold's editable-field lookup runs off the main actor through `SelectionEditabilityProbe`,
-bound to the original source PID and one `axReadTimeout` deadline. If the lookup times out,
-clipboard fallback is refused; the UI thread keeps processing events.
-
----
-
-## Privacy & Non-Destructive Guarantees
-
-- **No Clipboard Pollution (AX modes)**: `ax-text-control`, `ax-web-area`, and `browser-script` never write to `NSPasteboard` — they read the live accessibility tree or the browser's AppleScript bridge.
-- **Copy modes are archive-and-restore**: `menu-copy`/`keyboard-copy` temporarily place the selected text on the general pasteboard, then restore the archived items tagged with the nspasteboard transient markers so clipboard managers don't treat the restore as a user copy.
-- **Ignored Fields**: Secure text fields (such as password inputs or masked text areas) do not expose `kAXSelectedTextAttribute` through AX APIs, ensuring password security.
+- The AX modes never write to `NSPasteboard`; the copy modes restore the previous contents and mark the restore as transient.
+- Secure text fields do not expose their selected text through AX.
+- Selected text and clipboard content are logged only with private redaction; IDs and outcomes are public.
 
 ## Inline Action Match Context
 
-Inline result evaluation receives the same per-action regex match context as click execution. The
-selection remains available as `openclip.input.text`, while `openclip.input.matchedText` and
-`openclip.input.captures` carry the regex match and capture groups. This lets inline actions such as
-Currency Converter evaluate a value embedded in a longer selected passage.
+Inline result evaluation receives the same per-action regex match context as running the action. The selection is available as `openclip.input.text`, while `openclip.input.matchedText` and `openclip.input.captures` carry the regex match and capture groups, so inline actions such as Currency Converter can evaluate a value inside a longer selection.

@@ -24,28 +24,9 @@ final class AIPresetDraftTests: XCTestCase {
             XCTAssertEqual(saved, preset)
             XCTAssertEqual(preset.title, "Simplify")
             XCTAssertEqual(preset.prompt, "Use simpler words.")
-            XCTAssertEqual(reloaded.popupIcon(for: action), .text("Simplify"))
+            XCTAssertEqual(reloaded.popupIcon(for: action), .symbol(icon))
             XCTAssertEqual(reloaded.tableIcon(for: action), .symbol(icon))
-            XCTAssertEqual(ActionEditorPage.initialDisplayMode(
-                override: reloaded.override(for: action.id), actionIcon: action.icon
-            ), 1)
         }
-    }
-
-    func testExplicitIconModePersistsAtCreation() throws {
-        let store = MemorySettingsStore()
-        let customizations = ActionCustomizationManager(settingsStore: store)
-        let draft = AIPresetDraft(title: "Simplify", prompt: "Use simpler words.", iconSymbol: "pencil", displayMode: 0)
-        let preset = try XCTUnwrap(draft.createPreset(
-            bindings: ActionBindingStore(settingsStore: store), customizations: customizations,
-            saveShortcut: { _, _ in XCTFail("No shortcut was chosen") }, savePreset: { _ in }
-        ))
-        let action = AIAction(presetID: preset.id, title: preset.title)
-        let reloaded = ActionCustomizationManager(settingsStore: store)
-        XCTAssertEqual(reloaded.popupIcon(for: action), .symbol("pencil"))
-        XCTAssertEqual(ActionEditorPage.initialDisplayMode(
-            override: reloaded.override(for: action.id), actionIcon: action.icon
-        ), 0)
     }
 
     func testCreationSavesTriggersUnderTheRegisteredPresetID() throws {
@@ -63,7 +44,7 @@ final class AIPresetDraftTests: XCTestCase {
                 let action = AIAction(presetID: preset.id, title: preset.title)
                 XCTAssertEqual(bindings.actionID(forAlias: "easy"), action.id)
                 XCTAssertEqual(savedShortcutName, .actionHotkey(action.id))
-                XCTAssertEqual(customizations.popupIcon(for: action), .text("Simplify"))
+                XCTAssertEqual(customizations.popupIcon(for: action), .symbol(Constants.defaultAIIconSymbol))
             }
         ))
         let actionID = AIAction(presetID: preset.id, title: preset.title).id

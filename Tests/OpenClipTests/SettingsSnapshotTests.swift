@@ -2,16 +2,14 @@ import XCTest
 @testable import Core
 
 final class SettingsSnapshotTests: XCTestCase {
-    func testStandaloneAIPreferencesSurviveExportAndImport() {
+    func testPinnedActionsSurviveExportAndImport() {
         let source = MemorySettingsStore()
-        XCTAssertTrue(source.get(.standaloneAIActionIDs).isEmpty)
-        source.set(.standaloneAIActionIDs, value: ["ai.preset.rewrite"])
-        source.set(.actionOrder, value: ["ai.preset.rewrite", "builtin.copy", "builtin.aiTools"])
+        XCTAssertTrue(source.get(.pinnedActionIDs).isEmpty)
+        source.set(.pinnedActionIDs, value: ["ai.preset.rewrite", "builtin.copy"])
         let snapshot = SettingsSnapshotter.capture(store: source, keys: SettingsCatalog.coreKeys, appVersion: "test")
         let destination = MemorySettingsStore()
         SettingsSnapshotter.apply(snapshot, to: destination, keys: SettingsCatalog.coreKeys)
-        XCTAssertEqual(destination.get(.standaloneAIActionIDs), ["ai.preset.rewrite"])
-        XCTAssertEqual(destination.get(.actionOrder), source.get(.actionOrder))
+        XCTAssertEqual(destination.get(.pinnedActionIDs), ["ai.preset.rewrite", "builtin.copy"])
     }
 
     private let nameKey = SettingKey<String>("test.snapshot.name", defaultValue: "")
@@ -141,14 +139,13 @@ final class SettingsSnapshotTests: XCTestCase {
         XCTAssertEqual(decoded.appVersion, "test")
     }
 
-    func testSearchButtonVisibilitySurvivesExportAndImport() {
+    func testColorModeSurvivesExportAndImport() {
         let source = MemorySettingsStore()
-        XCTAssertTrue(source.get(.showSearchAllActions))
-        source.set(.showSearchAllActions, value: false)
+        source.set(.popupThemeColor, value: "dark")
         let snapshot = SettingsSnapshotter.capture(store: source, keys: SettingsCatalog.coreKeys, appVersion: "test")
         let destination = MemorySettingsStore()
         SettingsSnapshotter.apply(snapshot, to: destination, keys: SettingsCatalog.coreKeys)
-        XCTAssertFalse(destination.get(.showSearchAllActions))
+        XCTAssertEqual(destination.get(.popupThemeColor), "dark")
     }
 
     func testCoreCatalogNamesAreUnique() {

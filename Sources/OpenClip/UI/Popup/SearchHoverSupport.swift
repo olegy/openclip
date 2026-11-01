@@ -2,7 +2,7 @@
 // OpenClip
 //
 // Hover-target plumbing for the action-search palette (result rows and chrome).
-// Split out of PopupSearchView.swift; mirrors the bar's PopupHoverSupport pattern.
+// Split out of PopupSearchView.swift; fed by PopupHoverState like the rest of the popup.
 import SwiftUI
 import Core
 

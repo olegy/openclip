@@ -2,7 +2,7 @@
 // OpenClip
 //
 // The action-search palette: a focused text field filtering the full action catalog (enabled and
-// disabled) as you type, rendered as one surface with the popup bar. Results appear above or
+// disabled) as you type, rendered as one card. Results appear above or
 // below the field depending on popup position; up to 3 rows visible, scrollable beyond that.
 // Rows are chosen with the arrows + Return, the mouse, or ⌘1…⌘9 — the first nine rows carry a
 // shortcut (shown on the row) that runs them outright. The keys live on the focused field, so
@@ -25,7 +25,6 @@ public struct PopupSearchView: View {
     public let context: ActionContext
     public let alternateContext: SelectionContext?
     private let onContextChanged: (@MainActor (SelectionContext) -> Void)?
-    public let resultsAbove: Bool
     public let onResult: @MainActor (ActionResult) -> Void
     public let onExit: @MainActor () -> Void
     /// Reports a drag from the search header so the popup owner can move the panel.
@@ -43,11 +42,6 @@ public struct PopupSearchView: View {
     public let onSaveAIPrompt: @MainActor (String, Bool) -> Void
     /// Whether AI is switched on; off, the empty state keeps its plain "No matches" copy.
     private let isAIEnabled: Bool
-    /// When non-nil, the palette is scoped to a parent action's sub-actions: it lists only those
-    /// children and rerenders the field with the parent's icon + a "Search within ..." placeholder.
-    public let scope: SearchScope?
-    /// Called when the user drops the current scope (Esc with an empty query) back to the full list.
-    public let onExitScope: @MainActor () -> Void
     /// Recency counters (action ID → MRU counter) captured at palette entry; breaks ties below
     /// match quality. Constant for the palette session. See `ActionUsageStore`.
     public let usageRecency: [String: Int]
@@ -79,11 +73,10 @@ public struct PopupSearchView: View {
     @ObservedObject private var modeStore: PopupModeStore
 
     @Environment(\.popupEffectiveTheme) private var environmentEffectiveTheme
-    @Setting(SettingKey.popupTheme) private var selectedTheme
     @Setting(SettingKey.popupThemeColor) private var themeColor
     @Environment(\.colorScheme) private var colorScheme
 
-    /// Hover follows the same mechanism as the bar: the AX global-mouse location hit-tested
+    /// Hover is location-based: the AX global-mouse location hit-tested
     /// against registered frames (instant), with an `.onHover` fallback when global monitoring
     /// is unavailable. This avoids SwiftUI's delayed hover for the palette's small targets.
     /// Deliberately *not* `@ObservedObject`: `location` publishes at event-monitor rate, and
@@ -110,21 +103,17 @@ public struct PopupSearchView: View {
         if !environmentEffectiveTheme.isEmpty {
             return environmentEffectiveTheme
         }
-        let category = PopupThemeModel.category(fromStored: selectedTheme)
-        if category == .glass { return "glass" }
         return PopupThemeModel.classicToken(appearance: themeColor, systemIsDark: colorScheme == .dark)
     }
 
-    /// The precomputed search index for this palette session: scoped children when scoped, the
-    /// full catalog otherwise. Built once in `init` (and on scope changes via `rebuildSearchIndex`)
-    /// instead of on every body evaluation — indexing walks the whole catalog resolving titles +
+    /// The precomputed search index for this palette session. Built once in `init` instead of on every body evaluation — indexing walks the whole catalog resolving titles +
     /// keywords, so it must not re-run for every keystroke/hover.
     @State private var searchIndex: [ActionSearchIndex] = []
 
     /// The ranked results for the current `query`. Stored, not computed: body evaluation reads
     /// `results` several times per pass (count, viewport height, the row ForEach) and re-evaluates
     /// on hover/selection moves too — a computed property would re-run the full filter+sort on
-    /// every one of those reads. Recomputed exactly once per query change (and per scope rebuild).
+    /// every one of those reads. Recomputed exactly once per query change.
     @State private var results: [ActionSearchIndex] = []
 
     /// Height is captured at palette entry so filtering never moves the card. The list scrolls
@@ -194,33 +183,17 @@ public struct PopupSearchView: View {
         min(max(value, minimum), max(maximum, minimum))
     }
 
-    private static var prewarmedIndexCache: (catalogIDs: [String], usageRecency: [String: Int], index: [ActionSearchIndex])?
-
-    public static func prewarmIndex(catalog: [any Action]) {
-        let recency = ActionUsageStore.shared.recency
-        let index = buildIndex(
-            catalog: catalog,
-            scope: nil,
-            usageRecency: recency,
-            presenter: ActionCustomizationManager.shared
-        )
-        prewarmedIndexCache = (catalog.map(\.id), recency, index)
-    }
-
     public init(
         catalog: [any Action],
         context: ActionContext,
         alternateContext: SelectionContext? = nil,
         onContextChanged: (@MainActor (SelectionContext) -> Void)? = nil,
-        resultsAbove: Bool = false,
         presenter: any ActionPresenting = ActionCustomizationManager.shared,
         modeStore: PopupModeStore = PopupModeStore(),
-        scope: SearchScope? = nil,
         usageRecency: [String: Int] = [:],
         onResult: @escaping @MainActor (ActionResult) -> Void,
         onExit: @escaping @MainActor () -> Void,
         onDrag: @escaping @MainActor (ResultCardDragPhase) -> Void = { _ in },
-        onExitScope: @escaping @MainActor () -> Void = {},
         onRunAI: @escaping @MainActor (String) -> Void = { _ in },
         onRunAIPrompt: @escaping @MainActor (String, Bool, Bool) -> Void = { _, _, _ in },
         onSaveAIPrompt: @escaping @MainActor (String, Bool) -> Void = { _, _ in },
@@ -234,15 +207,12 @@ public struct PopupSearchView: View {
         self.context = context
         self.alternateContext = alternateContext
         self.onContextChanged = onContextChanged
-        self.resultsAbove = resultsAbove
         self.presenter = presenter
         self._modeStore = ObservedObject(wrappedValue: modeStore)
-        self.scope = scope
         self.usageRecency = usageRecency
         self.onResult = onResult
         self.onExit = onExit
         self.onDrag = onDrag
-        self.onExitScope = onExitScope
         self.onRunAI = onRunAI
         self.onRunAIPrompt = onRunAIPrompt
         self.onSaveAIPrompt = onSaveAIPrompt
@@ -252,18 +222,9 @@ public struct PopupSearchView: View {
         self.onRunLoadingAction = onRunLoadingAction
         self.onClickIntent = onClickIntent
         _activeSelectionContext = State(initialValue: context.selection)
-        // Index once at entry: the palette is recreated on every search entry (mode + scope
-        // transition together), so the current catalog/scope are captured here. If a prewarmed
-        // index matches the current catalog and recency, reuse it for instant appearance; otherwise build fresh.
-        let initialIndex: [ActionSearchIndex]
-        if scope == nil,
-           let prewarmed = Self.prewarmedIndexCache,
-           prewarmed.catalogIDs == catalog.map(\.id),
-           prewarmed.usageRecency == usageRecency {
-            initialIndex = prewarmed.index
-        } else {
-            initialIndex = Self.buildIndex(catalog: catalog, scope: scope, usageRecency: usageRecency, presenter: presenter)
-        }
+        // Index once at entry: the palette is recreated on every search entry, so the current
+        // catalog is captured here.
+        let initialIndex = Self.buildIndex(catalog: catalog, usageRecency: usageRecency, presenter: presenter)
         _searchIndex = State(initialValue: initialIndex)
         _results = State(initialValue: initialIndex)
         _naturalRowWidth = State(initialValue: Self.naturalRowWidth(for: initialIndex))
@@ -278,7 +239,7 @@ public struct PopupSearchView: View {
         resultsList
         .frame(width: cardWidth, height: cardHeight)
         .background(CommandDigitCatcher { row in runRow(at: row - 1) })
-        .popupCardChrome(cornerRadius: PopupMetrics.searchCornerRadius, effectiveTheme: effectiveTheme, colorScheme: colorScheme)
+        .popupCardChrome(cornerRadius: PopupMetrics.searchCornerRadius, colorScheme: colorScheme)
         .onPreferenceChange(SearchHoverFramePreferenceKey.self) { frames in
             MainActor.assumeIsolated {
                 hoverFrames = frames
@@ -292,9 +253,6 @@ public struct PopupSearchView: View {
             results = ActionSearch.search(newValue, in: searchIndex)
             naturalRowWidth = Self.naturalRowWidth(for: results)
             selectedIndex = 0
-        }
-        .onChange(of: scope?.parent.id) { _, _ in
-            rebuildSearchIndex()
         }
         .onAppear {
             isFocused = true
@@ -377,15 +335,11 @@ public struct PopupSearchView: View {
     }
 
     private var selectionTitle: String {
-        context.selection.source == .ocr
-            ? String(localized: "OCR")
-            : String(localized: "Selection")
+        String(localized: "Selection")
     }
 
     private var activeContextTitle: String {
-        if activeSelectionContext.source == .ocr {
-            return String(localized: "OCR")
-        } else if activeSelectionContext.isClipboardFallback {
+        if activeSelectionContext.isClipboardFallback {
             return String(localized: "Clipboard")
         } else {
             return String(localized: "Selection")
@@ -394,10 +348,7 @@ public struct PopupSearchView: View {
 
     @ViewBuilder
     private var activeSourceIcon: some View {
-        if activeSelectionContext.source == .ocr {
-            Image(systemName: "text.viewfinder")
-                .font(.system(size: 12, weight: .medium))
-        } else if activeSelectionContext.isClipboardFallback {
+        if activeSelectionContext.isClipboardFallback {
             Image(systemName: "doc.on.clipboard")
                 .font(.system(size: 11, weight: .medium))
         } else {
@@ -469,12 +420,7 @@ public struct PopupSearchView: View {
                 .contentShape(Rectangle())
                 .gesture(searchHeaderDragGesture)
 
-            TextField(
-                scope == nil
-                    ? String(localized: "Search all actions…")
-                    : String(localized: "Search within \(scope?.parent.displayTitle(using: presenter) ?? "")…"),
-                text: $query
-            )
+            TextField(String(localized: "Search all actions…"), text: $query)
             .textFieldStyle(.plain)
             .font(.system(size: 14, weight: .regular))
             .foregroundColor(PopupThemeModel.restForeground(for: effectiveTheme))
@@ -548,28 +494,16 @@ public struct PopupSearchView: View {
             }
     }
 
-    /// Closes the palette by dropping the scope back to the full list (Esc with an empty scoped
-    /// query) or, when already flat, exiting search entirely.
+    /// Closes the palette (Esc with an empty query).
     private func exitSearch() {
-        if scope != nil { onExitScope() } else { onExit() }
+        onExit()
     }
 
-    /// Leading field icon: the scope parent's icon when scoped, otherwise a native magnifying glass.
+    /// Leading field icon: a native magnifying glass.
     private var searchIcon: some View {
-        if let parent = scope?.parent {
-            return AnyView(actionIcon(parent).foregroundColor(PopupThemeModel.restSecondary(for: effectiveTheme)))
-        } else {
-            return AnyView(
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(PopupThemeModel.restSecondary(for: effectiveTheme))
-            )
-        }
-    }
-
-    /// Render an action's icon (symbol / iconify / url / local / text) at field size.
-    private func actionIcon(_ action: any Action) -> some View {
-        ActionIconView(icon: rowIcon(for: action), size: 16)
+        Image(systemName: "magnifyingglass")
+            .font(.system(size: 14, weight: .medium))
+            .foregroundColor(PopupThemeModel.restSecondary(for: effectiveTheme))
     }
 
     private var resultsList: some View {
@@ -669,23 +603,17 @@ public struct PopupSearchView: View {
                                 : PopupThemeModel.restSecondary(for: effectiveTheme)
                         )
                         .transition(.opacity)
-                } else if let shortcut = Self.shortcutHint(forRow: index) {
-                    Text(shortcut)
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundColor(
-                            (isSelected || isHovered)
-                                ? PopupThemeModel.restForeground(for: effectiveTheme)
-                                : PopupThemeModel.restSecondary(for: effectiveTheme)
-                        )
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(
-                            Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.05),
-                            in: RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        )
-                        .transition(.opacity)
-                        .accessibilityLabel("Command \(index + 1)")
+                } else {
+                    PaletteRowAccessories(
+                        items: PaletteRowAccessories.items(
+                            alias: item.alias,
+                            hotkey: PaletteRowAccessories.hotkey(for: item.action.id),
+                            commandDigit: Self.shortcutHint(forRow: index) != nil ? index + 1 : nil
+                        ),
+                        isSelected: isSelected,
+                        effectiveTheme: effectiveTheme
+                    )
+                    .transition(.opacity)
                 }
             }
             .padding(.horizontal, 10)
@@ -806,9 +734,18 @@ public struct PopupSearchView: View {
     /// The plain, borderless bottom bar matching the top search field.
     private var bottomBarRow: some View {
         HStack(spacing: 8) {
+            PaletteSourceFooter(
+                selection: activeSelectionContext,
+                hasAlternate: canSwitchContext,
+                effectiveTheme: effectiveTheme,
+                onSwitch: { toggleContextSource() }
+            )
+            .padding(.leading, 14)
+
             Spacer(minLength: 8)
 
             footerActionButtons
+                .fixedSize()
                 .padding(.trailing, 8)
                 .offset(y: -2)
         }
@@ -869,7 +806,6 @@ public struct PopupSearchView: View {
             .padding(.horizontal, title.isEmpty ? 8 : 12)
             .padding(.vertical, 5)
             .popupFooterButtonChrome(
-                effectiveTheme: effectiveTheme,
                 colorScheme: colorScheme,
                 isHovered: hoveredFooterButton == id,
                 tint: isAccent ? .accentColor : nil
@@ -992,7 +928,7 @@ public struct PopupSearchView: View {
         }
         Task { @MainActor in
             do {
-                // Same match plumbing as the bar's perform path: thread the visibility match into
+                // Same match plumbing as the hotkey perform path: thread the visibility match into
                 // the perform context so placeholders/env see the same match that enabled the row.
                 let match = action.matchInfo(for: activeContext)
                 let performContext = ActionContext(
@@ -1009,26 +945,29 @@ public struct PopupSearchView: View {
         }
     }
 
-    /// Indexes the palette's candidates (scoped children when scoped, the full catalog otherwise)
-    /// once per palette entry. Runs only when the catalog/scope inputs change, never per body eval.
+    /// Indexes the palette's candidates once per palette entry, never per body eval.
     static func buildIndex(
         catalog: [any Action],
-        scope: SearchScope?,
         usageRecency: [String: Int],
         presenter: any ActionPresenting,
-        aliases: [String: String] = ActionBindingStore.shared.aliases
+        aliases: [String: String] = ActionBindingStore.shared.aliases,
+        pinnedIDs: [String] = PinnedActionStore.shared.ids
     ) -> [ActionSearchIndex] {
-        let candidates = scope?.children ?? catalog
-        // The unscoped palette lists leaf actions only: container rows (group rows) are hidden so
-        // the results never surface an inert row that performs `.none`. Their sub-actions are
-        // indexed directly, and each group's title/name is folded into its children's keywords
-        // (see `searchKeywords`) so typing the group name still surfaces its sub-actions. Scoped
-        // palettes receive pre-resolved children (no container rows), so they pass through.
-        let containerIDs = scope == nil
-            ? Set(catalog.filter { $0.chrome.popupBehavior == .showSubActions }.map(\.id))
-            : []
-        return candidates
-            .filter { !containerIDs.contains($0.id) }
+        // The palette lists leaf actions only: container rows (group rows) are hidden so the
+        // results never surface an inert row that performs `.none`. Their sub-actions are indexed
+        // directly, and each group's title/name is folded into its children's keywords (see
+        // `searchKeywords`) so typing the group name still surfaces its sub-actions.
+        //
+        // Rows are indexed in palette order (`PaletteOrder`: pinned, then most recently used, then
+        // by title), which is what an empty query shows and what breaks a query's remaining ties.
+        let containerIDs = Set(catalog.filter { $0.chrome.popupBehavior == .showSubActions }.map(\.id))
+        let leaves = catalog.filter { !containerIDs.contains($0.id) }
+        return PaletteOrder.ordered(
+            leaves,
+            pinnedIDs: pinnedIDs,
+            usageRecency: usageRecency,
+            title: { $0.displayTitle(using: presenter) }
+        )
             .map { action in
                 ActionSearchIndex(
                     id: action.id,
@@ -1039,17 +978,6 @@ public struct PopupSearchView: View {
                     alias: aliases[action.id] ?? ""
                 )
             }
-    }
-
-    /// Rebuilds the index when the scope changes in place. The view is normally recreated per
-    /// palette entry (init), so this is a defensive guard for scope transitions that keep
-    /// `.search` mounted. The catalog is captured at entry; the palette is ephemeral.
-    private func rebuildSearchIndex() {
-        let index = Self.buildIndex(catalog: catalog, scope: scope, usageRecency: usageRecency, presenter: presenter)
-        searchIndex = index
-        results = ActionSearch.search(query, in: index)
-        naturalRowWidth = Self.naturalRowWidth(for: results)
-        selectedIndex = 0
     }
 
     private static func searchKeywords(for action: any Action, in catalog: [any Action]) -> String {
@@ -1086,8 +1014,7 @@ public struct PopupSearchView: View {
         return parts.joined(separator: " ")
     }
 
-    /// Rows are strictly [icon | text], so use the table presentation icon. This preserves the
-    /// underlying glyph when the popup bar has been configured to show the action title as text.
+    /// Rows are strictly [icon | text], so use the table presentation icon.
     private func rowIcon(for action: any Action) -> ActionIcon {
         presenter.tableIcon(for: action)
     }
@@ -1108,7 +1035,7 @@ public struct PopupSearchView: View {
         }
     }
 
-    // MARK: - Hover (same location-based mechanism as the bar)
+    // MARK: - Hover (location-based)
 
     /// The hovered target is derived from the shared mouse location, hit-tested against the
     /// frames each row registers in the popup's named coordinate space. Hovering a row
@@ -1121,8 +1048,7 @@ public struct PopupSearchView: View {
         }
 
         // Hit-test the registered frames rather than comparing against card-relative constants:
-        // the location is in full panel-content coordinates, which include the 28 pt shadow inset
-        // that `PopupMetrics.popupShadowInset` adds before the named hover space.
+        // the location is in full panel-content coordinates.
         if let header = hoverFrames[.searchBar], header.contains(point) {
             hoveredTarget = .searchBar
             // NEVER select a list row when mouse is over the search bar

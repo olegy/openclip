@@ -302,29 +302,23 @@ public enum SettingsDesignTokens {
         switch page {
         case .general:
             return SettingsTint.general
-        case .appearance:
-            return SettingsTint.appearance
-        case .customize:
-            return SettingsTint.customize
-        case .shortcuts:
-            return SettingsTint.shortcuts
-        case .appRules:
-            return SettingsTint.appRules
+        case .palette:
+            return SettingsTint.palette
         case .store:
             return SettingsTint.store
         case .about:
             return SettingsTint.about
         case .ai, .aiNewPreset, .aiPreset:
-            return SettingsTint.openClip
+            return SettingsTint.ai
+        case .builtinActions:
+            return SettingsTint.builtin
         case .customActions, .newCustomAction:
-            return SettingsTint.openClip
-        case .newGroup, .iconPicker, .addApplication:
-            return SettingsTint.openClip
-        case .builtinAction(let id):
-            return SettingsTint.openClip
+            return SettingsTint.custom
+        case .extensions:
+            return SettingsTint.extensions
         case .extensionPackage(let id):
             return SettingsTint.extensionTint(for: id)
-        case .action(let id):
+        case .iconPicker, .action:
             return SettingsTint.openClip
         }
     }
@@ -374,11 +368,11 @@ public enum SettingsDesignTokens {
         } else if lower.contains("slider") {
             return SettingsTint.appearance // Customize (Pink)
         } else if lower.contains("square.stack") {
-            return SettingsTint.customize // Actions (Purple)
+            return SettingsTint.palette // Palette (Purple)
         } else if lower.contains("key") || lower.contains("command") || lower.contains("keyboard") {
             return Color(red: 0.98, green: 0.52, blue: 0.12) // System Orange
         } else if lower.contains("checklist") || lower.contains("rules") {
-            return SettingsTint.appRules // Blue
+            return SettingsTint.orange
         } else if lower.contains("bag") || lower.contains("cart") {
             return SettingsTint.store // App Store Blue
         } else if lower.contains("question") || lower.contains("info") {

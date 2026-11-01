@@ -15,7 +15,6 @@ public enum OnboardingStep: Int, CaseIterable, Identifiable, Sendable {
     case welcome = 0
     case permission = 1
     case extensions = 2
-    case done = 3
 
     public var id: Int { rawValue }
 
@@ -24,7 +23,6 @@ public enum OnboardingStep: Int, CaseIterable, Identifiable, Sendable {
         case .welcome: return "Welcome"
         case .permission: return "Access"
         case .extensions: return "Extensions"
-        case .done: return "Try It"
         }
     }
 }
@@ -93,7 +91,6 @@ public struct OnboardingView: View {
 
     @State private var step: OnboardingStep = .welcome
     @State private var slideEdge: Edge = .trailing
-    @State private var hasDetectedSelection = false
     @State private var isSkipHovered = false
 
     public init(onComplete: @escaping @MainActor () -> Void) {
@@ -117,7 +114,6 @@ public struct OnboardingView: View {
                     case .welcome: welcomeStep
                     case .permission: permissionStep
                     case .extensions: extensionsStep
-                    case .done: doneStep
                     }
                 }
                 .transition(.push(from: slideEdge))
@@ -167,7 +163,7 @@ public struct OnboardingView: View {
             }
             .frame(width: 72, height: 8)
 
-            if step != .done {
+            if !isLastStep {
                 Button {
                     completeOnboarding()
                 } label: {
@@ -204,24 +200,28 @@ public struct OnboardingView: View {
             Spacer()
 
             Button {
-                if step == .done {
-                    completeOnboarding()
-                } else {
+                if let next = OnboardingStep(rawValue: step.rawValue + 1) {
                     slideEdge = .trailing
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                        step = OnboardingStep(rawValue: step.rawValue + 1) ?? .done
+                        step = next
                     }
+                } else {
+                    completeOnboarding()
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Text(step == .done ? String(localized: "Get Started") : String(localized: "Continue"))
-                    Image(systemName: step == .done ? "arrow.right.circle.fill" : "chevron.right")
+                    Text(isLastStep ? String(localized: "Get Started") : String(localized: "Continue"))
+                    Image(systemName: isLastStep ? "arrow.right.circle.fill" : "chevron.right")
                         .font(.system(size: 9.5, weight: .bold))
                 }
             }
             .buttonStyle(MacPrimaryButtonStyle())
             .keyboardShortcut(.defaultAction)
         }
+    }
+
+    private var isLastStep: Bool {
+        step == OnboardingStep.allCases.last
     }
 
     private func completeOnboarding() {
@@ -233,118 +233,43 @@ public struct OnboardingView: View {
         onComplete()
     }
 
-    // MARK: - Screen 1: Welcome & Value Concept
+    // MARK: - Screen 1: Welcome
 
     private var welcomeStep: some View {
         VStack(spacing: 16) {
             // Hero
             VStack(spacing: 6) {
-                Image(systemName: "cursorarrow.rays")
+                Image(systemName: "command.square.fill")
                     .symbolRenderingMode(.hierarchical)
                     .font(.system(size: 42))
                     .foregroundStyle(Color.accentColor)
 
-                Text("Welcome to OpenClip")
+                Text("OpenClip Lite")
                     .font(.title2.weight(.bold))
 
-                Text("Turn selected text in any app into instant contextual actions.")
+                Text("Select text in any app, press the shortcut, and pick an action from the palette. With nothing selected, the palette works on the clipboard.")
                     .font(.body)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
             }
 
-            // Realistic Selection & Floating Action Bar Mock
-            VStack(spacing: 10) {
-                VStack(spacing: 14) {
-                    // Floating OpenClip Action Bar HUD
-                    HStack(spacing: 6) {
-                        // Calculated math result badge
-                        HStack(spacing: 4) {
-                            Image(systemName: "equal.circle.fill")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(.accentColor)
-                            Text("1,590")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.primary)
-                        }
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4.5)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(Color.accentColor.opacity(0.14))
-                        )
-
-                        actionPill(icon: "doc.on.doc", label: "Copy")
-                        actionPill(icon: "character.book.closed.fill", label: "Translate")
-                        actionPill(icon: "speaker.wave.2.fill", label: "Speak")
-                        actionPill(icon: "sparkle", label: "AI")
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color(nsColor: .windowBackgroundColor))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
-                    )
-                    .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 2)
-
-                    // Mock Selected Text Line
-                    HStack(spacing: 0) {
-                        Text("Total estimate: ")
-                            .font(.system(size: 13.5))
-                            .foregroundColor(.secondary)
-                        Text("1250 + 340")
-                            .font(.system(size: 13.5, weight: .semibold))
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .fill(Color.accentColor.opacity(0.25))
-                            )
-                        Text(" USD for redesign")
-                            .font(.system(size: 13.5))
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding(.vertical, 16)
-                .padding(.horizontal, 14)
-                .frame(maxWidth: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-                )
-
-                Text("Calculates math, translates languages, speaks text & runs extensions.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
+            HStack(spacing: 12) {
+                Text("Command Palette")
+                    .font(.headline)
+                Spacer()
+                Shortcut(for: .togglePopup)
             }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+            )
         }
-    }
-
-    private func actionPill(icon: String, label: LocalizedStringKey) -> some View {
-        HStack(spacing: 3.5) {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.secondary)
-            Text(label)
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundColor(.primary)
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 4.5)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
-        )
     }
 
     // MARK: - Screen 2: Permission & Privacy
@@ -440,91 +365,6 @@ public struct OnboardingView: View {
             Text("Browse 100+ extensions in Menu Bar → Preferences")
                 .font(.caption)
                 .foregroundColor(.secondary)
-        }
-    }
-
-    // MARK: - Screen 4: Live Interactive Payoff Sandbox
-
-    private var doneStep: some View {
-        VStack(spacing: 14) {
-            // Hero
-            VStack(spacing: 4) {
-                Image(systemName: "sparkles")
-                    .symbolRenderingMode(.hierarchical)
-                    .font(.system(size: 38))
-                    .foregroundStyle(Color.green)
-
-                Text("Try It Right Now")
-                    .font(.title2.weight(.bold))
-
-                Text("Highlight any part of the text below to see the real action bar appear.")
-                    .font(.body)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            // Live Interactive Sandbox Container with distinct "Live" border and cursor
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 4) {
-                    Image(systemName: "hand.tap.fill")
-                        .font(.system(size: 11))
-                        .foregroundColor(.accentColor)
-                    Text("Interactive Playground — select text:")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.secondary)
-                }
-
-                SandboxTextView(
-                    text: "Our team sync is Friday at 2:30pm — project budget is 1250 + 340. Check https://getopenclip.app for details.",
-                    onSelection: {
-                        if !hasDetectedSelection {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                                hasDetectedSelection = true
-                            }
-                        }
-                    }
-                )
-                .frame(height: 56)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color(nsColor: .textBackgroundColor))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(hasDetectedSelection ? Color.green.opacity(0.5) : Color.accentColor.opacity(0.35), lineWidth: 1.5)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            }
-            .padding(10)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-            )
-
-            // Selection Feedback or Shortcut hint
-            if hasDetectedSelection {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                    Text("OpenClip detected selection! The action bar is active.")
-                        .font(.caption.weight(.medium))
-                        .foregroundColor(.green)
-                }
-                .transition(.scale.combined(with: .opacity))
-            } else {
-                HStack(spacing: 4) {
-                    Image(systemName: "command")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                    Text("Press ⌥⌘C anytime to open OpenClip manually.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
         }
     }
 }

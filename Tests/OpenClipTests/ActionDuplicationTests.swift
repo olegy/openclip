@@ -47,9 +47,6 @@ final class ActionDuplicationTests: XCTestCase {
         XCTAssertEqual(duplicate?.iconName, "magnifyingglass")
         XCTAssertEqual(duplicate?.type, original.type)
         XCTAssertEqual(coordinator.customActions.count, 2)
-
-        let order = settingsStore.get(.actionOrder)
-        XCTAssertEqual(order, [original.id, duplicate!.id])
     }
 
     func testDeleteCustomActionRemovesActionAndCleansState() {
@@ -67,7 +64,7 @@ final class ActionDuplicationTests: XCTestCase {
         _ = ActionBindingStore.shared.setAlias("del", for: "custom.delete_test")
         XCTAssertEqual(ActionBindingStore.shared.alias(for: "custom.delete_test"), "del")
 
-        ActionCustomizationManager.shared.setOverride(for: "custom.delete_test", title: "Customized", symbol: nil, text: nil)
+        ActionCustomizationManager.shared.setOverride(for: "custom.delete_test", title: "Customized", symbol: nil)
         XCTAssertEqual(ActionCustomizationManager.shared.override(for: "custom.delete_test")?.customTitle, "Customized")
 
         coordinator.deleteCustomAction(actionID: "custom.delete_test")
@@ -91,29 +88,6 @@ final class ActionDuplicationTests: XCTestCase {
 
         coordinator.loadCustomActions()
         XCTAssertTrue(coordinator.customActions.isEmpty)
-    }
-
-    /// The context menu's Delete item appears only for what can actually be removed: custom
-    /// actions, installed extensions, groups, and AI presets. Built-ins never qualify.
-    func testCanDeleteClassifiesActionSources() {
-        let custom = CustomAction(id: "custom.a", title: "A", iconName: "star", type: .openURL(urlTemplate: "https://example.com"))
-        XCTAssertTrue(ActionDeletion.canDelete(custom))
-
-        let extensionAction = URLTemplateAction(id: "com.example.ext", title: "Ext", icon: .symbol("link"), urlTemplate: "https://example.com")
-        XCTAssertTrue(ActionDeletion.canDelete(extensionAction))
-
-        XCTAssertFalse(ActionDeletion.canDelete(CopyAction()))
-        XCTAssertTrue(ActionDeletion.canDelete(AIAction(presetID: "rewrite", title: "Rewrite")))
-        XCTAssertFalse(ActionDeletion.canDelete(AIToolsAction(settingsStore: settingsStore)))
-
-        let group = CustomAction(
-            id: "custom.group",
-            title: "Group",
-            iconName: "folder",
-            type: .textSnippet(template: ""),
-            chrome: ActionChrome(badge: .none, rowStyle: .actionGroup, popupBehavior: .showSubActions, source: .custom)
-        )
-        XCTAssertTrue(ActionDeletion.canDelete(group))
     }
 
     func testDuplicateExtensionPackage() async throws {

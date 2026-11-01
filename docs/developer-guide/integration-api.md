@@ -48,19 +48,17 @@ A confirmation dialog is shown before installation. Malformed URLs (missing `id`
 
 ### `openclip://command/<name>` (commands)
 
-App-level verbs.
+App-level verbs. There is one.
 
 ```
 openclip://command/open-settings
-openclip://command/pause
-openclip://command/resume
 ```
 
 | Command | Effect |
 |---------|--------|
 | `open-settings` | Bring OpenClip's Settings window to the front |
-| `pause` | Pause the popup for one hour (same as the menu bar's Pause) |
-| `resume` | Clear a temporary pause |
+
+Unknown command names are ignored.
 
 ---
 
@@ -87,8 +85,8 @@ Candidates for a later iteration:
 - **Running actions** (`openclip run <action-id>`) — headless invocation with the result on stdout.
   A CLI is the right transport for this, not a URL callback.
 - **Capability discovery** (`openclip list --json`) — the runnable actions and their ids.
-- **App Intents / Shortcuts integration** — `Run OpenClip Action`, `Capture Text`, and
-  `Toggle OpenClip`, which return values natively.
+- **App Intents / Shortcuts integration** — `Run OpenClip Action` and `Capture Text`, which
+  return values natively.
 - **macOS Services** — expose actions into the Services menu / context menu.
 
 ---
@@ -98,7 +96,6 @@ Candidates for a later iteration:
 | Concern | Location |
 |---------|----------|
 | URL grammar | `Sources/Core/Integration/OpenClipDeepLink.swift` |
-| Dispatch + install | `Sources/OpenClip/Platform/DeepLinkRouter.swift` |
-| Command side effects | `Sources/OpenClip/Settings/IntegrationSettings.swift` |
+| Dispatch, install and commands | `Sources/OpenClip/Platform/DeepLinkRouter.swift` |
 | Entry point | `AppDelegate.application(_:open:)` → `DeepLinkRouter.shared.handle(_:)` |
 | Tests | `Tests/OpenClipTests/DeepLinkTests.swift` |

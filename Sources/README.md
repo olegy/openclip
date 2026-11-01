@@ -9,7 +9,7 @@ Sources/
 ├── Core/               # Pure domain framework (Core.framework)
 │   ├── Actions/        # Abstract action definitions, rules, relevance models
 │   ├── Extensions/     # Manifest schemas, validation, extension manager
-│   ├── Rules/          # Application context rules & engine
+│   ├── Rules/          # Built-in per-app selection rules
 │   ├── Selection/      # Selection context data structures & protocols
 │   ├── Settings/       # Abstract settings keys & storage contracts
 │   └── Utils/          # Pure string & placeholder expansion engines
@@ -23,7 +23,7 @@ Sources/
         ├── Design/     # LiquidGlass & visual design tokens
         ├── Icons/      # SVG/PNG icon view renderers & caches
         ├── Onboarding/ # Onboarding window & view controllers
-        ├── Popup/      # Floating popup window, positioner, hover & AI result card views
+        ├── Popup/      # Command palette window, positioner, hover & result card views
         └── Preferences/# App settings tabs & extension store views
 ```
 
@@ -35,4 +35,4 @@ Sources/
 ### 2. `Sources/OpenClip` (macOS Integration & UI)
 - **Target**: `OpenClip.app`
 - **Dependencies**: `Core`, `AppKit`, `SwiftUI`, `JavaScriptCore`, `KeyboardShortcuts`, `ApplicationServices`, `Security`, `ServiceManagement`.
-- **Role**: Contains all macOS platform adapters, AppKit floating windows, SwiftUI preference panels, global hotkey listeners, system selection monitoring, and concrete execution runtimes in `Platform/Runtimes/`.
+- **Role**: Contains all macOS platform adapters, AppKit floating windows, SwiftUI preference panels, global hotkey listeners, on-demand selection reading, and concrete execution runtimes in `Platform/Runtimes/`.

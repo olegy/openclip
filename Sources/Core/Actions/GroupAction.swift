@@ -52,13 +52,12 @@ public struct GroupAction: ConfigurableAction, SubActionProviding, ActionWithRul
     }
 
     // Sub-actions are the registry entries whose id is `\(self.id).\(subID)` (the uniform convention
-    // used by DefaultActionFactory). The group itself, AI launchers, and the inline completion
-    // pseudo-action are excluded.
+    // used by DefaultActionFactory). The group itself and AI launchers are excluded.
     @MainActor
     public func subActions(in catalog: [any Action]) -> [any Action] {
         catalog.filter { action in
             guard action.id != self.id, action.id.hasPrefix(self.id + ".") else { return false }
-            return !action.chrome.launchesAI && !ActionIdentity.isCompletionPseudoAction(action)
+            return !action.chrome.launchesAI
         }
     }
 }

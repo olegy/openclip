@@ -4,13 +4,12 @@
 // One installed extension's settings page: a hero saying what it is and who made it, the actions
 // it adds and the way into each one's settings — the same page whether the package groups five
 // commands behind one icon or contributes a single command. Its command table is
-// `ActionSettingsRow`, the same rows the Shortcuts page is made of. Whether it is on, and what can be done to it as a
+// `ActionSettingsRow`, the same rows every action list is made of. Whether it is on, and what can be done to it as a
 // whole — view its README, show its folder, uninstall it — live in the toolbar beside the back and
 // forward arrows, because they belong to the extension rather than to any row of the page.
 //
-// This is what Raycast does with an extension — select it in the sidebar and everything about it
-// is on one page — and it is the reason an extension is a sidebar destination rather than a gear on
-// a list row.
+// This is what Raycast does with an extension — open it and everything about it is on one page.
+// It is reached from the Extensions page.
 
 import SwiftUI
 import AppKit
@@ -31,8 +30,6 @@ struct ExtensionPackagePage: View {
     @ObservedObject private var router = SettingsRouter.shared
 
     @State private var isUpdating = false
-    /// Why an alias typed in the table below was refused.
-    @State private var aliasError: String?
 
     init(
         packageID: String,
@@ -59,19 +56,17 @@ struct ExtensionPackagePage: View {
             } else {
                 // The package went away while its page was open (uninstalled from the Store, or
                 // its folder was deleted). Show the list rather than an empty pane.
-                Color.clear.onAppear { router.select(.customize) }
+                Color.clear.onAppear { router.select(.extensions) }
             }
         }
     }
 
     /// The page's sections, in the order they appear. Only the ones with something to show are
-    /// rendered — an empty `Section` still draws its card, which is how a one-command extension
-    /// (no group, so no name-and-icon row) ended up with a blank card at the foot of the page.
+    /// rendered — an empty `Section` still draws its card.
     private enum PageSection {
         case gate
         case update
         case actions
-        case naming
     }
 
     private func sections(for info: InstalledExtensionInfo) -> [PageSection] {
@@ -79,7 +74,6 @@ struct ExtensionPackagePage: View {
         if info.gatedReason != nil { sections.append(.gate) }
         if updateManager.updatablePackageIDs.contains(packageID) { sections.append(.update) }
         if !info.commands.isEmpty { sections.append(.actions) }
-        if info.containerActionID != nil { sections.append(.naming) }
         return sections
     }
 
@@ -169,45 +163,22 @@ struct ExtensionPackagePage: View {
                         ActionSettingsRow(
                             action: action,
                             disabledActionIDs: $disabledActionIDs,
-                            disabledPackages: $disabledPackages,
-                            onAliasMessage: { message in
-                                withAnimation(.easeInOut(duration: 0.18)) { aliasError = message }
-                            }
+                            disabledPackages: $disabledPackages
                         )
                     }
                 } header: {
                     Text("Actions")
                 } footer: {
                     VStack(alignment: .leading, spacing: 10) {
-                        if let aliasError {
-                            SettingsInlineError(message: aliasError)
-                        }
-
                         Text(info.commands.count == 1
-                             ? "Turn the action off to hide it from the popup bar. Open it to change its name, icon, shortcut and options."
-                             : "Turn an action off to hide it from the popup bar. Open one to change its name, icon, shortcut and options.")
+                             ? "Turn the action off to hide it from the palette. Open it to change its name, icon, shortcut and options."
+                             : "Turn an action off to hide it from the palette. Open one to change its name, icon, shortcut and options.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                         identifierFooter(if: last == .actions)
                     }
-                }
-            }
-
-            if sections.contains(.naming), let containerID = info.containerActionID {
-                Section {
-                    SettingsDisclosureRow {
-                        router.push(.action(id: containerID))
-                    } content: {
-                        SettingsRowLabel(
-                            title: "Name and Icon in Popup Bar",
-                            subtitle: "Rename the group or change the icon its actions sit behind.",
-                            systemImage: "square.grid.2x2"
-                        )
-                    }
-                } footer: {
-                    identifierFooter(if: last == .naming)
                 }
             }
         }

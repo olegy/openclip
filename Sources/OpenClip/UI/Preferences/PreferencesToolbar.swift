@@ -36,13 +36,9 @@ import Combine
 import Core
 
 public enum PreferencesToolbarAction: Sendable, Equatable {
-    case newGroup
     case addCustomAction
-    case addApplication
     case addAIAction
     case installExtensionFile
-    /// Leaves the Actions list for the Custom Actions page.
-    case openCustomActions
     case refreshStore
     /// The Store's list order was picked from the sort menu.
     case setStoreSort(StoreSort)
@@ -67,31 +63,6 @@ struct PreferencesPlusMenuItem: Equatable {
 enum PreferencesPlusMenu {
     static func items(for page: SettingsPage) -> [PreferencesPlusMenuItem] {
         switch page {
-        case .customize:
-            return [
-                PreferencesPlusMenuItem(
-                    title: String(localized: "New Group"),
-                    symbol: "folder.badge.plus",
-                    action: .newGroup
-                ),
-                PreferencesPlusMenuItem(
-                    title: String(localized: "Custom Action"),
-                    symbol: "plus",
-                    action: .openCustomActions,
-                    startsGroup: true
-                ),
-                PreferencesPlusMenuItem(
-                    title: String(localized: "Install Extension"),
-                    symbol: "puzzlepiece.extension",
-                    action: .installExtensionFile
-                ),
-            ]
-        case .appRules:
-            return [PreferencesPlusMenuItem(
-                title: String(localized: "Add Application"),
-                symbol: "plus",
-                action: .addApplication
-            )]
         case .ai:
             return [PreferencesPlusMenuItem(
                 title: String(localized: "New AI Action"),
@@ -256,26 +227,22 @@ public final class PreferencesToolbarController: NSObject, NSToolbarDelegate, NS
         setHidden(refreshItem, page != .store)
 
         switch page {
-        case .customize:
-            configureActionButton(symbol: "plus", tooltip: String(localized: "New Group"))
-        case .appRules:
-            configureActionButton(symbol: "plus", tooltip: String(localized: "Add Application"))
         case .ai:
             configureActionButton(symbol: "plus", tooltip: String(localized: "Add Custom AI Action"))
         default:
             setHidden(actionItem, true)
         }
 
-        // A page with more than one thing to add — the Actions list — turns the button into a menu;
-        // everywhere else a single press does the one thing the tooltip names.
+        // A page with more than one thing to add turns the button into a menu; everywhere else a
+        // single press does the one thing the tooltip names.
         actionMenuItems = PreferencesPlusMenu.items(for: page)
     }
 
-    /// Pages whose toolbar carries the shared search field: the Store's catalog and the Actions
+    /// Pages whose toolbar carries the shared search field: the Store's catalog and the Palette
     /// list (whose aliases the field also matches).
     private static func showsSearch(for page: SettingsPage) -> Bool {
         switch page {
-        case .store, .customize, .shortcuts: return true
+        case .store, .palette: return true
         default: return false
         }
     }

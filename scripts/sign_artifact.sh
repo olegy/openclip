@@ -13,9 +13,12 @@
 # Usage:
 #   ./scripts/sign_artifact.sh <path-to-OpenClip.app|path-to.dmg> [--identity <name>]
 #
-# With no identity configured the artifact is signed ad-hoc, with the hardened runtime and the
-# entitlements still applied, so unsigned local builds match release builds everywhere except the
-# certificate. See scripts/signing_config.sh for the configuration precedence.
+# With no identity configured the artifact is signed ad-hoc, with the entitlements still applied
+# but without the hardened runtime: its library validation rejects nested frameworks that lack a
+# Team ID ("different Team IDs"), so a hardened ad-hoc app dies in dyld at launch. A self-signed
+# local certificate has no Team ID either and is treated the same way; it only buys a stable
+# designated requirement, so the Accessibility grant survives rebuilds. See
+# scripts/signing_config.sh for the configuration precedence.
 
 set -euo pipefail
 
@@ -66,9 +69,18 @@ TEAM_ID="$(oc_team_from_identity "$IDENTITY")"
 # the notary service rejects submissions without one. The ad-hoc pseudo-identity has no
 # certificate to timestamp against, so asking for one there just fails the build.
 TIMESTAMP_FLAG="--timestamp"
-if oc_is_adhoc "$IDENTITY"; then
+RUNTIME_FLAG="--options=runtime"
+if [ -z "$TEAM_ID" ]; then
+    # Library validation under the hardened runtime requires nested code to share the app's
+    # Team ID. Ad-hoc and self-signed code have none, so dyld would refuse Core.framework and the
+    # app would abort at launch. Apple's timestamp service only serves Apple-issued certificates.
     TIMESTAMP_FLAG="--timestamp=none"
+    RUNTIME_FLAG=""
+fi
+if oc_is_adhoc "$IDENTITY"; then
     echo "==> Signing ad-hoc (no Developer ID configured; not distributable)"
+elif [ -z "$TEAM_ID" ]; then
+    echo "==> Signing with local certificate: $IDENTITY (no Team ID; not distributable)"
 else
     echo "==> Signing with: $IDENTITY"
 fi
@@ -80,7 +92,7 @@ sign_one() {
     codesign \
         --force \
         --sign "$IDENTITY" \
-        --options runtime \
+        ${RUNTIME_FLAG:+"$RUNTIME_FLAG"} \
         "$TIMESTAMP_FLAG" \
         "$@" \
         "$path"

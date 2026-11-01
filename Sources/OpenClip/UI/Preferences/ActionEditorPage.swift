@@ -1,13 +1,12 @@
 // ActionEditorPage.swift
 // OpenClip
 //
-// One action's settings as a page of the Settings window: appearance (name, icon, how the popup
-// bar shows it), keyboard (alias, hotkey), and either the options the action declares or, for a
+// One action's settings as a page of the Settings window: appearance (name, icon), keyboard
+// (alias, hotkey), and either the options the action declares or, for a
 // GUI-authored custom action, its execution logic. Whether it is on, and duplicating or deleting
 // it, are in the toolbar beside the back and forward arrows — they belong to the action, not to
-// this form, and they take effect without a Save. A built-in action shows it
-// as its own sidebar page; an extension's command, a custom action or a group reach it from their
-// owner's page, the Customize list or the Shortcuts table.
+// this form, and they take effect without a Save. Every action reaches it from its home under the
+// sidebar's Actions group (Built-in, Custom, an extension's page) or from a row on Palette.
 //
 // This used to be an `.applicationDefined` NSPopover pinned to a list row: a 370pt floating panel
 // that ignored clicks in the list behind it, ignored Escape, and stayed up when you changed panes.
@@ -46,7 +45,6 @@ public struct ActionEditorPage: View {
     /// Set by Reset to Default; the persisted override is cleared on Save (not immediately), so
     /// Cancel still backs out of an accidental reset.
     @State private var appearanceResetPending = false
-    @State private var displayMode: Int = 0 // 0 = Icon, 1 = Text
     @State private var isIconHovered = false
     @State private var isIconPickerPresented = false
 
@@ -140,7 +138,7 @@ public struct ActionEditorPage: View {
     /// True when this level of the stack is the one on screen.
     private var isCurrent: Bool {
         switch router.currentPage {
-        case .action(let id), .builtinAction(let id): return id == action.id
+        case .action(let id): return id == action.id
         case .aiPreset(let id): return id == aiPreset?.id
         case .extensionPackage(let id):
             return ActionIdentity.extensionPackageID(of: action) == id
@@ -279,9 +277,6 @@ public struct ActionEditorPage: View {
 
     private var previewIcon: ActionIcon {
         ActionAppearanceFields.resolvedPreviewIcon(
-            displayMode: 0,
-            title: customTitle,
-            displayTextFallback: action.title,
             iconSymbol: iconSymbol,
             initialIconSymbol: initialIconSymbol,
             baseIcon: baseIconState,
@@ -294,9 +289,6 @@ public struct ActionEditorPage: View {
         case .symbol(let name):
             return name.isEmpty ? String(localized: "Choose icon") : String(localized: "Icon: \(name) — click to change")
         case .text(let text):
-            if displayMode == 1 {
-                return String(localized: "Popup bar shows “\(text)” — click to choose the icon for icon mode")
-            }
             return String(localized: "Text glyph “\(text)” — click to replace with an icon")
         case .url:
             return String(localized: "Remote image — click to replace with an icon")
@@ -611,7 +603,7 @@ public struct ActionEditorPage: View {
                 SettingsCard("Appearance") {
                     SettingsRow(
                         title: "Icon",
-                        subtitle: "Choose a custom symbol for the popup bar.",
+                        subtitle: "Choose a custom symbol for the palette.",
                         systemImage: "app.dashed",
                         iconTileTint: heroTint,
                         plainIcon: true,
@@ -645,33 +637,13 @@ public struct ActionEditorPage: View {
 
                     SettingsRow(
                         title: "Name",
-                        subtitle: "Custom title shown in search and the popup bar.",
+                        subtitle: "Custom title shown in the palette.",
                         systemImage: "textformat",
                         iconTileTint: Color(red: 0.10, green: 0.74, blue: 0.66),
                         plainIcon: true,
                         descriptionOnHover: true
                     ) {
                         customNameField
-                    }
-
-                    SettingsDivider()
-
-                    SettingsRow(
-                        title: "Show as",
-                        subtitle: "Display as an icon or as text in the popup bar.",
-                        systemImage: "rectangle.split.2x1",
-                        iconTileTint: SettingsTint.customize,
-                        plainIcon: true,
-                        descriptionOnHover: true
-                    ) {
-                        Picker("", selection: $displayMode) {
-                            Text("Icon").tag(0)
-                            Text("Text").tag(1)
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        .frame(width: 140)
-                        .disabled(manifestMissing)
                     }
                 }
 
@@ -739,14 +711,16 @@ public struct ActionEditorPage: View {
                                 plainIcon: true,
                                 descriptionOnHover: true
                             ) {
-                                Picker("", selection: $deliveryPrefString) {
-                                    Text("Show in card").tag("preview")
-                                    Text("Paste").tag("paste")
-                                    Text("Copy").tag("copy")
-                                }
-                                .labelsHidden()
-                                .pickerStyle(.segmented)
-                                .frame(width: 250)
+                                SettingsSegmentedControl(
+                                    options: [
+                                        .init(value: "preview", title: "Show in card"),
+                                        .init(value: "paste", title: "Paste"),
+                                        .init(value: "copy", title: "Copy")
+                                    ],
+                                    selection: $deliveryPrefString,
+                                    accessibilityLabel: "When finished"
+                                )
+                                .frame(width: 270)
                             }
                         }
                     }
@@ -799,14 +773,17 @@ public struct ActionEditorPage: View {
                     SettingsCard("Execution Logic") {
                         VStack(spacing: 12) {
                             SettingsRow(title: "Type") {
-                                Picker("Type", selection: $editKind) {
-                                    Text("Open URL").tag(EditKind.openURL)
-                                    Text("Text Snippet").tag(EditKind.textSnippet)
-                                    Text("Shell Script").tag(EditKind.shellScript)
-                                    Text("JavaScript").tag(EditKind.javaScript)
-                                }
-                                .pickerStyle(.segmented)
-                                .labelsHidden()
+                                SettingsSegmentedControl(
+                                    options: [
+                                        .init(value: EditKind.openURL, title: "Open URL"),
+                                        .init(value: EditKind.textSnippet, title: "Text Snippet"),
+                                        .init(value: EditKind.shellScript, title: "Shell Script"),
+                                        .init(value: EditKind.javaScript, title: "JavaScript")
+                                    ],
+                                    selection: $editKind,
+                                    accessibilityLabel: "Type"
+                                )
+                                .frame(minWidth: 0, maxWidth: .infinity)
                             }
 
                             SettingsDivider(insetLeading: SettingsDesignTokens.sectionCardPaddingH)
@@ -946,10 +923,6 @@ public struct ActionEditorPage: View {
             guard isLoaded, !isDeleting else { return }
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled, !isDeleting else { return }
-            autoSave()
-        }
-        .onChange(of: displayMode) { _, _ in
-            guard isLoaded, !isDeleting else { return }
             autoSave()
         }
         .onChange(of: iconSymbol) { _, _ in
@@ -1110,7 +1083,7 @@ public struct ActionEditorPage: View {
         if let preset = aiPreset {
             ActionBindingStore.shared.setAlias(nil, for: id)
             ActionCustomizationManager.shared.resetOverride(for: id)
-            coordinator.setAIActionPlacement(actionIDs: [id], standalone: false)
+            PinnedActionStore.shared.unpin(id)
             AIServiceManager.shared.presets.removeAll(where: { $0.id == preset.id })
             router.pop()
             return
@@ -1251,10 +1224,7 @@ public struct ActionEditorPage: View {
         initialStoredSymbol = isAIPreset
             ? override?.customIconSymbol
             : Self.sanitizedStoredSymbol(override?.customIconSymbol, actionIcon: action.icon)
-        // The editor always previews the icon that will return if the user switches back to
-        // Show Icon. A Show Text popup override must not replace that baseline with title text.
         seedBaseline(from: ActionCustomizationManager.shared.tableIcon(for: action))
-        displayMode = Self.initialDisplayMode(override: override, actionIcon: action.icon)
         if let customAction = action as? CustomAction {
             manifestState = nil
             logicEditable = true
@@ -1357,11 +1327,6 @@ public struct ActionEditorPage: View {
         initialStoredSymbol = nil
         deliveryPrefString = Self.defaultDeliveryPrefString(for: action)
         seedBaseline(from: action.icon)
-        if case .text = action.icon {
-            displayMode = 1
-        } else {
-            displayMode = 0
-        }
         customTitle = action.title
         aliasText = ""
         _ = ActionBindingStore.shared.setAlias("", for: action.id)
@@ -1457,20 +1422,16 @@ public struct ActionEditorPage: View {
 
     private func saveAppearanceOverride() {
         let titleOverride: String? = (customTitle.isEmpty || customTitle == action.title) ? nil : customTitle
-        let symbolOverride = Self.resolvedIconModeSymbolOverride(
-            displayMode: displayMode,
+        let symbolOverride = Self.resolvedSymbolOverride(
             current: iconSymbol,
             initial: initialIconSymbol,
-            stored: initialStoredSymbol,
-            action: action
+            stored: initialStoredSymbol
         )
-        let textOverride: String? = (displayMode == 1) ? (customTitle.isEmpty ? action.title : customTitle) : nil
 
         ActionCustomizationManager.shared.setOverride(
             for: action.id,
             title: titleOverride,
-            symbol: symbolOverride,
-            text: textOverride
+            symbol: symbolOverride
         )
 
         let defaultPref = Self.defaultDeliveryPrefString(for: action)
@@ -1480,19 +1441,8 @@ public struct ActionEditorPage: View {
         ActionCustomizationManager.shared.setDeliveryPreference(pref, for: action.id)
     }
 
-    /// The display mode the editor opens in. Show Text wins when a text override is stored (it
-    /// outranks a symbol in `popupIcon`); a stored symbol override means the user already switched
-    /// to Show Icon, which must stick even for builtins whose own icon is a text glyph (Copy/Cut/
-    /// Paste) — those otherwise reopen as Show Text and make the saved switch look lost.
-    static func initialDisplayMode(override: ActionOverride?, actionIcon: ActionIcon) -> Int {
-        if override?.customIconText != nil { return 1 }
-        if override?.customIconSymbol != nil { return 0 }
-        if case .text = actionIcon { return 1 }
-        return 0
-    }
-
-    /// The symbol Show Icon mode resolves to for text-based builtins and AI presets, driving
-    /// the icon-mode preview before any replacement is picked.
+    /// The symbol text-based builtins and AI presets show in the palette, driving the icon preview
+    /// before any replacement is picked.
     static func iconModeFallbackSymbol(for action: any Action) -> String? {
         guard case .text = action.icon,
               ActionIdentity.isBuiltin(action) || ActionIdentity.isAIPreset(action) else { return nil }
@@ -1507,24 +1457,6 @@ public struct ActionEditorPage: View {
     static func resolvedSymbolOverride(current: String, initial: String, stored: String?) -> String? {
         guard current.isEmpty || current == initial else { return current }
         return stored
-    }
-
-    /// Symbol override to persist for the chosen display mode. Show Icon mode needs a resolvable
-    /// symbol: for builtin actions whose own icon is a text glyph (Copy/Cut/Paste) the builtin's
-    /// preference symbol is persisted — otherwise `ActionCustomizationManager.popupIcon` keeps
-    /// resolving the text glyph and the switch to icon mode never takes effect. A field-level pick
-    /// or a previously stored symbol wins. Show Text mode only round-trips the icon field.
-    static func resolvedIconModeSymbolOverride(
-        displayMode: Int,
-        current: String,
-        initial: String,
-        stored: String?,
-        action: any Action
-    ) -> String? {
-        let fromField = resolvedSymbolOverride(current: current, initial: initial, stored: stored)
-        if let fromField { return fromField }
-        guard displayMode == 0 else { return nil }
-        return iconModeFallbackSymbol(for: action)
     }
 
     /// Overrides written before the icon-clobber fix stored a literal "star" placeholder for every

@@ -8,8 +8,7 @@
 # "not supported on this type of Mac". Checking the build settings is not enough to catch
 # that: `xcodebuild -showBuildSettings` reports the universal ARCHS even for invocations
 # that go on to produce a thin arm64 binary. So this inspects the finished bundle instead,
-# and release_update.sh runs it against the .zip and the .dmg separately rather than only
-# against the build product they are cut from.
+# and release.sh and package_app.sh run it against the finished bundle.
 #
 # Usage: ./scripts/verify_universal.sh <path-to-OpenClip.app> [label]
 

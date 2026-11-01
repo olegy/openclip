@@ -14,7 +14,6 @@ import SDWebImageSVGCoder
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private var statusBarController: StatusBarController?
-    private var selectionMonitor: (any SelectionMonitoring)?
     private var popupController: PopupWindowController?
     private var captureTextController: CaptureTextController?
     private var aiActionSync: AIActionSync?
@@ -22,7 +21,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
     private var onboardingWindowController: OnboardingWindowController?
     private var permissionRecoveryWindowController: PermissionRecoveryWindowController?
-    private var coachMarkController: CoachMarkController?
 
     func applicationShouldHandleReopen(
         _ sender: NSApplication,
@@ -103,47 +101,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         let controller = PopupWindowController()
         popupController = controller
         
-        // Setup selection monitor
-        let macMonitor = MacSelectionMonitor()
-        controller.selectionIsCurrent = { [weak macMonitor] context in
-            guard let generation = context.selectionGeneration else { return true }
-            return macMonitor?.selectionGeneration == generation
-        }
-        // Presentation gate only: "Appear Automatically" is evaluated by the monitor on its
-        // passive (mouse-release/keyboard) path, not here — the explicit hold gesture and the
-        // ⌥⌘C hotkey must still summon the popup with it off. Global Pause is rechecked at
-        // delivery time here because the hold/retrieval sleeps can outlast the pause toggle.
-        macMonitor.onSelection = { [weak self] context, canPaste in
-            let isPaused = DefaultSettingsStore.shared.get(.pauseUntilTimestamp) > Date().timeIntervalSince1970
-            if isPaused || self?.popupController == nil {
-                Log.selection.debug("[Trace#\(context.traceID ?? 0, privacy: .public)] popup delivery blocked paused=\(isPaused, privacy: .public) controllerAvailable=\(self?.popupController != nil, privacy: .public)")
-            }
-            if !isPaused {
-                // A real selection means the user has seen (or no longer needs) the nudge.
-                self?.coachMarkController?.dismiss()
-                self?.popupController?.show(for: context, pasteAvailable: canPaste)
-            }
-        }
         let captureController = CaptureTextController(popupController: controller)
         captureTextController = captureController
-        macMonitor.isSuppressed = { [weak captureController] in captureController?.isCapturing ?? false }
-        statusBarController?.onCaptureText = { [weak captureController] sourceApp in
-            captureController?.toggleCapture(sourceApp: sourceApp)
-        }
-        macMonitor.preparePasteProbe = { [weak self] app, policy in
-            self?.popupController?.preparePasteProbe(for: app, policy: policy)
-        }
-        // When a user has dragged a result card aside, selecting text in that same source app
-        // should not re-open the action bar over the card being viewed. Other apps remain unsuppressed.
-        macMonitor.isSuppressedForApp = { [weak self] bundleID in
-            guard let self, let popup = self.popupController, popup.cardIsModal,
-                  let source = popup.sourceAppBundleID, let bundleID else { return false }
-            return bundleID == source
-        }
-        selectionMonitor = macMonitor
 
         // Setup global shortcut hotkey manager
-        HotkeyManager.shared.setup(popupController: controller, selectionMonitor: macMonitor, captureTextController: captureController)
+        HotkeyManager.shared.setup(popupController: controller, captureTextController: captureController)
 
         let optionStore = SecretActionOptionStore()
         ExtensionManager.shared.actionFactory = DefaultActionFactory(optionStore: optionStore)
@@ -158,7 +120,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             )
             ActionCoordinator.shared.register(action: OpenURLAction())
             ActionCoordinator.shared.register(action: RevealInFinderAction())
-            ActionCoordinator.shared.register(action: CompletionAction())
             ActionCoordinator.shared.register(action: AIToolsAction())
             // Register each AI preset as an individual action (palette + Preferences → Actions).
             aiActionSync = AIActionSync.shared
@@ -181,7 +142,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         let lastRunBuild = DefaultSettingsStore.shared.get(.lastRunBuild)
         let completedOnboarding = DefaultSettingsStore.shared.get(.hasCompletedOnboarding)
         let isGranted = PermissionManager.shared.isAccessibilityGranted
-        let isAppEnabled = DefaultSettingsStore.shared.get(.isAppEnabled)
 
         let launchScenario = AppLaunchClassifier.classify(
             lastRunVersion: lastRunVersion,
@@ -201,9 +161,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             DefaultSettingsStore.shared.set(.lastRunBuild, value: newBuild)
             if !isGranted {
                 showPermissionRecovery(isUpdate: true)
-            } else {
-                selectionMonitor?.start()
-                showPostOnboardingCoachMark()
             }
         case .permissionRecovery:
             showPermissionRecovery(isUpdate: false)
@@ -212,65 +169,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
                 DefaultSettingsStore.shared.set(.lastRunVersion, value: currentVersion)
                 DefaultSettingsStore.shared.set(.lastRunBuild, value: currentBuild)
             }
-            if isGranted {
-                selectionMonitor?.start()
-            }
-            showPostOnboardingCoachMark()
             Task {
                 _ = try? await ExtensionsAPIClient.shared.fetchExtensions()
-            }
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: .openClipShowSandboxPopup,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let context = notification.object as? SelectionContext else { return }
-            Task { @MainActor in
-                self?.popupController?.show(for: context, pasteAvailable: false)
-            }
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: .openClipEnabledStateChanged,
-            object: nil,
-            queue: .main
-        ) { _ in
-            // "Appear Automatically" is evaluated by the selection monitor on its passive
-            // (mouse-release/keyboard) path. The selection monitor remains running so the
-            // explicit hold gesture and hotkeys (⌥⌘C) have immediate access to the selection.
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: .openClipAccessibilityChanged,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            let granted = (notification.object as? Bool) ?? PermissionManager.shared.isAccessibilityGranted
-            Task { @MainActor in
-                if granted {
-                    self?.selectionMonitor?.start()
-                } else {
-                    self?.selectionMonitor?.stop()
-                }
             }
         }
     }
 
     private func showOnboarding() {
         guard NSClassFromString("XCTestCase") == nil else { return }
-        // Deliberately no post-finish window dump: completing (or skipping) onboarding hands
-        // control straight back with a one-time "try it" coach-mark — the user's next step is to
-        // select text, not read Preferences.
-        popupController?.isOnboardingVisible = true
-        onboardingWindowController = OnboardingWindowController { [weak self] in
-            self?.popupController?.isOnboardingVisible = false
-            if PermissionManager.shared.isAccessibilityGranted {
-                self?.selectionMonitor?.start()
-            }
-            self?.showPostOnboardingCoachMark()
-        }
+        onboardingWindowController = OnboardingWindowController {}
         onboardingWindowController?.showWindow(nil)
     }
 
@@ -278,17 +185,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         guard NSClassFromString("XCTestCase") == nil else { return }
         permissionRecoveryWindowController = PermissionRecoveryWindowController(
             isUpdate: isUpdate,
-            onComplete: { [weak self] in
+            onComplete: {
                 let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
                 let currentBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
                 DefaultSettingsStore.shared.set(.lastRunVersion, value: currentVersion)
                 DefaultSettingsStore.shared.set(.lastRunBuild, value: currentBuild)
-                if PermissionManager.shared.isAccessibilityGranted {
-                    self?.selectionMonitor?.start()
-                }
-                self?.showPostOnboardingCoachMark()
             },
-            onDismiss: { [weak self] in
+            onDismiss: {
                 // Persist version/build even on "Later" so the same prompt isn't re-shown
                 // on every launch when the build is already current (idempotent).
                 let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
@@ -299,25 +202,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
                     DefaultSettingsStore.shared.set(.lastRunVersion, value: currentVersion)
                     DefaultSettingsStore.shared.set(.lastRunBuild, value: currentBuild)
                 }
-                self?.showPostOnboardingCoachMark()
             }
         )
         permissionRecoveryWindowController?.showWindow(nil)
-    }
-
-    /// One-time post-onboarding nudge: teaches the primary gesture ("select any text") when
-    /// Accessibility is in place, or offers a Preferences shortcut when the user skipped it.
-    /// `CoachMarkController` self-guards on its persisted seen-flag, so this is safe to call from
-    /// both the onboarding-completion path and subsequent launches until it's been dismissed once.
-    private func showPostOnboardingCoachMark() {
-        guard NSClassFromString("XCTestCase") == nil else { return }
-        let controller = CoachMarkController(
-            accessibilityGranted: PermissionManager.shared.isAccessibilityGranted,
-            onSetupAction: { [weak self] in
-                self?.statusBarController?.showPreferences()
-            })
-        coachMarkController = controller
-        controller.show(anchorFrame: statusBarController?.statusItemButtonFrame)
     }
 
     @objc private func openPreferencesMenuItemAction() {
@@ -420,7 +307,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             )
             ActionCoordinator.shared.register(action: OpenURLAction())
             ActionCoordinator.shared.register(action: RevealInFinderAction())
-            ActionCoordinator.shared.register(action: CompletionAction())
             if options.collectSeconds > 0 {
                 try? await Task.sleep(for: .seconds(options.collectSeconds))
             }
@@ -498,11 +384,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        if response.notification.request.content.userInfo["type"] as? String == "app_update" {
-            Task { @MainActor in
-                AppUpdateManager.shared.checkForUpdates()
-            }
-        }
         completionHandler()
     }
 

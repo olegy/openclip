@@ -12,7 +12,7 @@ import SwiftUI
 import AppKit
 
 /// The handle a resize drag started on. A surface's top-left corner stays fixed (the card's
-/// header is its move handle; the palette is anchored on the bar), so only the right edge, the
+/// header is its move handle), so only the right edge, the
 /// bottom edge and the corner joining them resize.
 public enum PopupResizeEdge: Sendable, Equatable {
     case right

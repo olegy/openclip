@@ -44,7 +44,7 @@ public struct ExtensionActionMetadata: Codable, Sendable, Equatable {
     /// Search keywords for the action palette.
     public let keywords: [String]?
     /// When true and the action is a synchronous JavaScript action, the action runs inline in the
-    /// popup bar, surfacing its return value as secondary preview text and mutating the selection on return.
+    /// palette, surfacing its return value as secondary preview text and mutating the selection on return.
     public let inline: Bool?
     /// Declares the uncommitted result kind produced by this action ("text", "file", "none", "dynamic").
     public let output: ExtensionOutputKind?

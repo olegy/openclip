@@ -5,7 +5,7 @@
 // `ActionChrome.isInlineResult == true`.
 //
 // - Tier 1: Instant synchronous pure-Swift evaluation (<0.1ms, e.g. CalculateAction)
-// - Tier 2: Selection-probe prewarming (5-20ms AX retrieval overlap)
+// - Tier 2: Results memoized across popups (same text, same action inputs)
 // - Tier 3: Asynchronous background execution bounded by hard timeout with session cancellation
 import Foundation
 import Core
@@ -32,8 +32,6 @@ public final class InlineResultEvaluator {
     /// can't pin unbounded memory in the cross-popup cache.
     private static let maxMemoizedResultLength = 1024
 
-    private var prewarmedResults: [String: (result: String, textHash: Int, fingerprint: Int)] = [:]
-    private var prewarmedTasks: [String: (task: Task<String?, Never>, textHash: Int, fingerprint: Int)] = [:]
     private var memoizedResults: [MemoKey: String] = [:]
     private var memoizedOrder: [MemoKey] = []
     private var runningTasks: [UUID: [String: Task<String?, Never>]] = [:]
@@ -164,101 +162,24 @@ public final class InlineResultEvaluator {
         }
     }
 
-    /// Tier 2: Populates the prewarm cache for synchronous and asynchronous inline actions during selection retrieval.
-    public func prewarm(actions: [any Action], context: ActionContext) {
-        let text = context.selection.text
-        let hash = text.hashValue
-        for action in actions where action.chrome.isInlineResult {
-            let key = memoKey(for: action, textHash: hash)
-            if let memo = memoizedResults[key] {
-                prewarmedResults[action.id] = (result: memo, textHash: hash, fingerprint: key.fingerprint)
-            } else if let syncResult = evaluateSynchronous(action: action, context: context) {
-                prewarmedResults[action.id] = (result: syncResult, textHash: hash, fingerprint: key.fingerprint)
-                storeMemoized(key: key, result: syncResult)
-            } else {
-                if let existing = prewarmedTasks[action.id],
-                   existing.textHash == hash,
-                   existing.fingerprint == key.fingerprint {
-                    continue
-                }
-                let task = Task { @MainActor [weak self] () -> String? in
-                    guard let self else { return nil }
-                    let result = await self.evaluateAsync(action: action, context: context)
-                    guard !Task.isCancelled else { return nil }
-                    if let result, !result.isEmpty {
-                        self.prewarmedResults[action.id] = (result: result, textHash: hash, fingerprint: key.fingerprint)
-                        self.storeMemoized(key: key, result: result)
-                    }
-                    return result
-                }
-                prewarmedTasks[action.id] = (task: task, textHash: hash, fingerprint: key.fingerprint)
-            }
-        }
+    /// Tier 2: The memoized result for `action` on text with `textHash`, valid only while the
+    /// action's inputs (script + resolved options) are unchanged.
+    public func memoizedResult(for action: any Action, textHash: Int) -> String? {
+        memoizedResults[memoKey(for: action, textHash: textHash)]
     }
 
-    /// Awaits pending prewarm evaluation tasks up to the given anticipation timeout budget.
-    public func awaitPrewarmed(timeout: TimeInterval = 0.025) async {
-        let activeTasks = prewarmedTasks.values.map(\.task)
-        guard !activeTasks.isEmpty else { return }
-        await withTaskGroup(of: Void.self) { group in
-            for task in activeTasks {
-                group.addTask {
-                    _ = await task.value
-                }
-            }
-            group.addTask {
-                let nanos = UInt64(max(0.001, timeout) * 1_000_000_000)
-                try? await Task.sleep(nanoseconds: nanos)
-            }
-            _ = await group.next()
-            group.cancelAll()
-        }
-    }
-
-    /// Returns a prewarmed result if present and valid for the given selected text hash.
-    ///
-    /// The action-aware overload is preferred: it also validates the action's input fingerprint
-    /// (script + resolved options) so a warmed result is never served after the action changed.
-    public func prewarmedResult(for action: any Action, textHash: Int) -> String? {
-        let key = memoKey(for: action, textHash: textHash)
-        if let cached = prewarmedResults[action.id],
-           cached.textHash == textHash,
-           cached.fingerprint == key.fingerprint {
-            return cached.result
-        }
-        return memoizedResults[key]
-    }
-
-    /// ID-only lookup retained for callers that only hold an action id. Validates the text hash but
-    /// cannot check the input fingerprint; prefer ``prewarmedResult(for:textHash:)`` where possible.
-    public func prewarmedResult(for actionID: String, textHash: Int) -> String? {
-        if let cached = prewarmedResults[actionID], cached.textHash == textHash {
-            return cached.result
-        }
-        return nil
-    }
-
-    /// Clears every cache and cancels all in-flight prewarm work. Full invalidation — use
-    /// ``endSession(_:)`` to end a popup while keeping the warm cache for the next selection.
-    public func clearPrewarmed() {
-        for entry in prewarmedTasks.values {
-            entry.task.cancel()
-        }
-        prewarmedTasks.removeAll()
-        prewarmedResults.removeAll()
+    /// Clears the memoized results. Full invalidation — use ``endSession(_:)`` to end a popup
+    /// while keeping the warm cache for the next selection.
+    public func clearMemoized() {
         memoizedResults.removeAll()
         memoizedOrder.removeAll()
     }
 
-    /// Ends a popup session: cancels that session's in-flight evaluations and any pending prewarm
-    /// tasks, but **retains** the warm result caches. Keeping them makes the next selection render
-    /// instantly instead of paying a cold JavaScriptCore evaluation on every show.
+    /// Ends a popup session: cancels that session's in-flight evaluations, but **retains** the
+    /// warm result cache. Keeping it makes the next selection render instantly instead of paying a
+    /// cold JavaScriptCore evaluation on every show.
     public func endSession(_ sessionID: UUID) {
         cancelSession(sessionID)
-        for entry in prewarmedTasks.values {
-            entry.task.cancel()
-        }
-        prewarmedTasks.removeAll()
     }
 
     /// Tier 3: Registers and starts background evaluation of an inline action for a popup session.
@@ -276,24 +197,19 @@ public final class InlineResultEvaluator {
 
         let hash = context.selection.text.hashValue
         let key = memoKey(for: action, textHash: hash)
-        if let cached = prewarmedResult(for: action, textHash: hash) {
+        if let cached = memoizedResults[key] {
             onResult(cached)
             return
         }
 
-        let prewarmed = prewarmedTasks[action.id]
         let task = Task { @MainActor [weak self] () -> String? in
             guard let self else { return nil }
             guard !Task.isCancelled else { return nil }
 
             var result: String?
             var attempts = 0
-            if let prewarmed, prewarmed.textHash == hash, prewarmed.fingerprint == key.fingerprint {
-                result = await prewarmed.task.value
-                attempts = 1
-            }
 
-            // A cold-start miss or a timed-out prewarm must not permanently deny the preview:
+            // A cold-start miss or a timed-out evaluation must not permanently deny the preview:
             // retry once with a fresh budget before giving up, so an occasional slow first
             // evaluation does not silently drop the inline result. At most two attempts total.
             while (result == nil || result?.isEmpty == true), attempts < 2 {

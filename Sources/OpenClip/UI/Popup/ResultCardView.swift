@@ -1,7 +1,7 @@
 // ResultCardView.swift
 // OpenClip
 //
-// The native result card rendered in content mode in place of the bar: a header (back chevron,
+// The native result card rendered in content mode in place of the palette: a header (back chevron,
 // producing action's icon or sparkles + title, diff toggle), a scrollable response body
 // (error-styled when the action failed), and a footer carrying Close (⎋) plus Copy/Paste (both
 // absent on an error card, which offers only Close; Paste also hidden when the target app can't
@@ -70,7 +70,7 @@ public struct ResultCardView: View {
     /// Paste availability of the target app (from the AX probe); `false` hides the Paste button.
     public let canPaste: Bool?
     public let onExit: @MainActor () -> Void
-    /// Esc: closes the card outright (the popup goes away) rather than falling back to the bar.
+    /// Esc: closes the card outright (the popup goes away) rather than returning to the palette.
     public let onDismiss: @MainActor () -> Void
     public let onPaste: @MainActor () -> Void
     public let onCopy: @MainActor () -> Void
@@ -101,15 +101,12 @@ public struct ResultCardView: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.popupEffectiveTheme) private var environmentEffectiveTheme
-    @Setting(SettingKey.popupTheme) private var selectedTheme
     @Setting(SettingKey.popupThemeColor) private var themeColor
 
     private var effectiveTheme: String {
         if !environmentEffectiveTheme.isEmpty {
             return environmentEffectiveTheme
         }
-        let category = PopupThemeModel.category(fromStored: selectedTheme)
-        if category == .glass { return "glass" }
         return PopupThemeModel.classicToken(appearance: themeColor, systemIsDark: colorScheme == .dark)
     }
     @FocusState private var isCardFocused: Bool
@@ -346,7 +343,7 @@ public struct ResultCardView: View {
 
     private func cardChrome<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
-            .popupCardChrome(cornerRadius: Self.cardCornerRadius, effectiveTheme: effectiveTheme, colorScheme: colorScheme)
+            .popupCardChrome(cornerRadius: Self.cardCornerRadius, colorScheme: colorScheme)
     }
 
     // MARK: - Header
@@ -361,7 +358,6 @@ public struct ResultCardView: View {
                     .foregroundColor(isChevronHovered ? .primary : PopupThemeModel.restForeground(for: effectiveTheme).opacity(0.65))
                     .frame(width: 22, height: 22)
                     .popupHeaderButtonChrome(
-                        effectiveTheme: effectiveTheme,
                         colorScheme: colorScheme,
                         isHovered: isChevronHovered
                     )
@@ -376,7 +372,7 @@ public struct ResultCardView: View {
             // text it covers. The handle sits *behind* this row, clear of the two buttons.
             HStack(spacing: 7) {
                 if let icon = payload.icon {
-                    // The producing action's own icon (bar-resolution: honors user overrides),
+                    // The producing action's own icon (honors user overrides),
                     // so extension results keep their identity in the card.
                     ActionIconView(icon: icon, size: 13)
                         .foregroundColor(.accentColor)
@@ -427,7 +423,6 @@ public struct ResultCardView: View {
                 .foregroundColor(isCloseHovered ? .primary : PopupThemeModel.restForeground(for: effectiveTheme).opacity(0.65))
                 .frame(width: 22, height: 22)
                 .popupHeaderButtonChrome(
-                    effectiveTheme: effectiveTheme,
                     colorScheme: colorScheme,
                     isHovered: isCloseHovered
                 )
@@ -466,7 +461,6 @@ public struct ResultCardView: View {
                 .foregroundColor(showsDiff ? .white : PopupThemeModel.restForeground(for: effectiveTheme).opacity(isDiffHovered ? 0.9 : 0.6))
                 .frame(width: 22, height: 22)
                 .popupHeaderButtonChrome(
-                    effectiveTheme: effectiveTheme,
                     colorScheme: colorScheme,
                     isHovered: isDiffHovered,
                     tint: showsDiff ? .accentColor : nil
@@ -488,7 +482,6 @@ public struct ResultCardView: View {
                 .foregroundColor(isPinned ? .white : PopupThemeModel.restForeground(for: effectiveTheme).opacity(isPinHovered ? 0.9 : 0.6))
                 .frame(width: 22, height: 22)
                 .popupHeaderButtonChrome(
-                    effectiveTheme: effectiveTheme,
                     colorScheme: colorScheme,
                     isHovered: isPinHovered,
                     tint: isPinned ? .accentColor : nil
@@ -996,7 +989,6 @@ public struct ResultCardView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .popupFooterButtonChrome(
-                            effectiveTheme: effectiveTheme,
                             colorScheme: colorScheme,
                             isHovered: isDismissHovered
                         )
@@ -1029,7 +1021,6 @@ public struct ResultCardView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .popupFooterButtonChrome(
-                    effectiveTheme: effectiveTheme,
                     colorScheme: colorScheme,
                     isHovered: isCopyHovered
                 )
@@ -1057,7 +1048,6 @@ public struct ResultCardView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .popupFooterButtonChrome(
-                    effectiveTheme: effectiveTheme,
                     colorScheme: colorScheme,
                     isHovered: isSaveHovered,
                     tint: .accentColor
@@ -1292,7 +1282,6 @@ public struct ResultCardView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .popupFooterButtonChrome(
-                    effectiveTheme: effectiveTheme,
                     colorScheme: colorScheme,
                     isHovered: isQuickLookHovered
                 )
@@ -1409,7 +1398,6 @@ public struct ResultCardView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .popupFooterButtonChrome(
-                    effectiveTheme: effectiveTheme,
                     colorScheme: colorScheme,
                     isHovered: isCopyHovered,
                     tint: isCopyPrimary ? .accentColor : nil
@@ -1437,7 +1425,6 @@ public struct ResultCardView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .popupFooterButtonChrome(
-                        effectiveTheme: effectiveTheme,
                         colorScheme: colorScheme,
                         isHovered: isPasteHovered,
                         tint: .accentColor

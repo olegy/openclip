@@ -34,17 +34,33 @@ public final class ExtensionUpdateManager: ObservableObject {
         automaticallyUpdatesExtensions = settings.get(.automaticallyUpdatesExtensions)
     }
 
-    /// Checks at launch and every six hours while the app is running.
+    /// Automatic checks hit the store at most this often, across relaunches.
+    static let automaticCheckInterval: TimeInterval = 24 * 60 * 60
+
+    /// Checks the store when the last automatic check is a day old — at launch or while running.
+    /// The loop wakes at least hourly, so switching automatic updates on takes effect within an hour.
     public func startAutomaticUpdates() {
         guard automaticUpdateTask == nil else { return }
         automaticUpdateTask = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.performAutomaticUpdate()
+                guard let self else { return }
+                let wait = secondsUntilNextAutomaticCheck()
+                if wait == 0 && automaticallyUpdatesExtensions {
+                    settings.set(.extensionsLastUpdateCheck, value: Date().timeIntervalSince1970)
+                    await performAutomaticUpdate()
+                    continue
+                }
                 do {
-                    try await Task.sleep(for: .seconds(6 * 60 * 60))
+                    try await Task.sleep(for: .seconds(wait == 0 ? 60 * 60 : min(wait, 60 * 60)))
                 } catch { return }
             }
         }
+    }
+
+    /// Seconds until the next automatic check is due; 0 when it is due now.
+    func secondsUntilNextAutomaticCheck(now: Date = Date()) -> TimeInterval {
+        let last = settings.get(.extensionsLastUpdateCheck)
+        return max(0, last + Self.automaticCheckInterval - now.timeIntervalSince1970)
     }
 
     public func stopAutomaticUpdates() {

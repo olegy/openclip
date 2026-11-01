@@ -13,54 +13,32 @@ public enum SettingsCatalog {
     /// Every setting declared in Core.
     public static var coreKeys: [AnySettingKey] {
         [
-            // Action ordering / enablement
-            SettingKey.actionOrder.erased,
-            SettingKey.standaloneAIActionIDs.erased,
+            // Action pinning / enablement
+            SettingKey.pinnedActionIDs.erased,
             SettingKey.disabledActionIDs.erased,
             SettingKey.disabledPackages.erased,
-            SettingKey.disabledContextualActionIDs.erased,
-            SettingKey.contextualActionsEnabled.erased,
-            SettingKey.contextualPillPosition.erased,
             SettingKey.actionUsageRecency.erased,
-            SettingKey.extensionGroupMemberOrder.erased,
             SettingKey.actionAliases.erased,
 
             // Extensions
             SettingKey.extensionTrust.erased,
             SettingKey.extensionTrustHashes.erased,
             SettingKey.extensionSources.erased,
+            SettingKey.automaticallyUpdatesExtensions.erased,
+            SettingKey.extensionsLastUpdateCheck.erased,
             SettingKey.extensionTrustMigrated.erased,
 
             // App / behavior toggles
-            SettingKey.isAppEnabled.erased,
             SettingKey.isAIEnabled.erased,
-            SettingKey.isMouseHoldEnabled.erased,
             SettingKey.hasCompletedOnboarding.erased,
-            SettingKey.hasDismissedPostOnboardingCoachMark.erased,
             SettingKey.startAtLogin.erased,
             SettingKey.completionCopyToClipboard.erased,
-            SettingKey.captureTextAutoCopy.erased,
-
-            // Updates
-            SettingKey.automaticallyChecksForUpdates.erased,
-            SettingKey.automaticallyDownloadsUpdates.erased,
-            SettingKey.notifyOnUpdate.erased,
-            SettingKey.updateChannel.erased,
 
             // Popup presentation
-            SettingKey.showSearchAllActions.erased,
-            SettingKey.popupPageSize.erased,
-            SettingKey.popupFitToWidth.erased,
-            SettingKey.popupBarWidth.erased,
             SettingKey.popupScale.erased,
-            SettingKey.popupTheme.erased,
             SettingKey.popupThemeColor.erased,
-            SettingKey.popupAlignment.erased,
-            SettingKey.popupVerticalPosition.erased,
 
             // Gesture / lifecycle
-            SettingKey.mouseHoldDuration.erased,
-            SettingKey.pauseUntilTimestamp.erased,
             SettingKey.lastRunVersion.erased,
             SettingKey.lastRunBuild.erased,
 
@@ -71,7 +49,6 @@ public enum SettingsCatalog {
 
             // Structured blobs
             SettingKey.actionCustomizations.erased,
-            SettingKey.actionGroups.erased,
             SettingKey.customActions.erased
         ]
     }

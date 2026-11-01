@@ -249,7 +249,7 @@ final class GoldenExtensionPlatformTests: XCTestCase {
         XCTAssertTrue(registry.actions.contains(where: { $0.id == "com.golden.url.action" }))
         
         // Matching regex context ("SampleInput" matches ^[a-zA-Z0-9]+$)
-        let availableMatching = registry.availableActions(for: sampleContext)
+        let availableMatching = registry.searchCatalog(for: sampleContext)
         XCTAssertTrue(availableMatching.contains(where: { $0.id == "com.golden.js.action" }))
         XCTAssertTrue(availableMatching.contains(where: { $0.id == "com.golden.applescript.action" }))
         XCTAssertTrue(availableMatching.contains(where: { $0.id == "com.golden.shell.action" }))
@@ -257,7 +257,7 @@ final class GoldenExtensionPlatformTests: XCTestCase {
         
         // Non-matching regex context ("Sample Input!" has spaces and special characters)
         let nonMatchingContext = ActionContext(selectedText: "Sample Input!")
-        let availableNonMatching = registry.availableActions(for: nonMatchingContext)
+        let availableNonMatching = registry.searchCatalog(for: nonMatchingContext)
         XCTAssertTrue(availableNonMatching.contains(where: { $0.id == "com.golden.js.action" }))
         XCTAssertTrue(availableNonMatching.contains(where: { $0.id == "com.golden.applescript.action" }))
         XCTAssertTrue(availableNonMatching.contains(where: { $0.id == "com.golden.shell.action" }))
@@ -270,7 +270,7 @@ final class GoldenExtensionPlatformTests: XCTestCase {
         isolatedRegistry.register(builtIns: [jsAction, asAction, shAction, urlAction])
         disabledStore.set(.disabledActionIDs, value: Set(["com.golden.js.action"]))
 
-        let availableWithDisabled = isolatedRegistry.availableActions(for: sampleContext)
+        let availableWithDisabled = isolatedRegistry.searchCatalog(for: sampleContext)
         XCTAssertFalse(availableWithDisabled.contains(where: { $0.id == "com.golden.js.action" }), "Disabled action should be filtered out by registry")
         XCTAssertTrue(availableWithDisabled.contains(where: { $0.id == "com.golden.shell.action" }), "Enabled actions in the same registry remain available")
     }

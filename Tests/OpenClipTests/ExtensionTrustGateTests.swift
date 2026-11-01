@@ -264,7 +264,7 @@ final class ExtensionTrustGateTests: XCTestCase {
         registry.register(action: gated)
         let selection = SelectionContext(text: "hello", sourceApp: AppIdentity(bundleIdentifier: "com.test", localizedName: "Test"), cursorPosition: .zero, timestamp: Date(), appPolicy: .default)
         let ctx = ActionContext(selection: selection, modifiers: [])
-        XCTAssertTrue(registry.availableActions(for: ctx).isEmpty, "gated action must never appear in floating popup")
+        XCTAssertTrue(registry.searchCatalog(for: ctx).isEmpty, "gated action must never appear in floating popup")
         XCTAssertTrue(registry.searchCatalog(for: ctx).isEmpty, "gated action must never appear in search catalog")
     }
 }

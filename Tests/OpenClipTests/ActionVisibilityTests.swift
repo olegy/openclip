@@ -87,44 +87,13 @@ final class ActionVisibilityTests: XCTestCase {
         XCTAssertTrue(result.enabled)
     }
 
-    func testRequiresSelectionTreatsOCRAsNonblankInputAndKeepsSourceAppGates() {
-        let ocrContext = ActionContext(selectedText: "recognized text", bundleID: "com.test.app", source: .ocr)
-        let inputRequired = ActionVisibility.isEnabled(
-            requirements: ActionRequirements(regex: "^recognized", apps: ["com.test.app"], requiresSelection: true),
-            legacyRegex: nil,
-            context: ocrContext
-        )
-        let wrongSourceApp = ActionVisibility.isEnabled(
-            requirements: ActionRequirements(apps: ["com.other.app"], requiresSelection: true),
-            legacyRegex: nil,
-            context: ocrContext
-        )
-        let whitespaceOCR = ActionContext(selectedText: " \n ", source: .ocr)
-        let emptyInputRequired = ActionVisibility.isEnabled(
-            requirements: ActionRequirements(requiresSelection: true),
-            legacyRegex: nil,
-            context: whitespaceOCR
-        )
-        let emptyInputAllowed = ActionVisibility.isEnabled(
-            requirements: ActionRequirements(requiresSelection: false),
-            legacyRegex: nil,
-            context: whitespaceOCR
-        )
-
-        XCTAssertTrue(inputRequired.enabled)
-        XCTAssertFalse(wrongSourceApp.enabled)
-        XCTAssertFalse(emptyInputRequired.enabled)
-        XCTAssertTrue(emptyInputAllowed.enabled)
-    }
-
     func testInputRequirementMatrixAcrossSourceAndEditability() {
         let cases: [(String, SelectionSource, Bool?, Bool)] = [
             ("", .selection, true, false),
             ("text", .selection, true, true),
             ("text", .selection, false, true),
             ("text", .selection, nil, true),
-            ("text", .clipboard, false, true),
-            ("text", .ocr, false, true)
+            ("text", .clipboard, false, true)
         ]
         func context(_ item: (String, SelectionSource, Bool?, Bool)) -> ActionContext {
             ActionContext(selection: SelectionContext(
