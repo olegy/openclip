@@ -2,13 +2,11 @@ import XCTest
 @testable import Core
 @testable import OpenClip
 
-/// Exercises the composite `SecretActionOptionStore` against the file-backed `SecretStore`: secrets go
-/// to SecretStore (~/.openclip/secrets.json) and never to UserDefaults; non-secrets round-trip through SettingsStore.
+/// Exercises the composite `SecretActionOptionStore` against `SecretStore`: secrets go to SecretStore
+/// (Keychain, in memory under test) and never to UserDefaults; non-secrets round-trip through SettingsStore.
 final class SecretActionOptionStoreTests: XCTestCase {
     private var store: SecretActionOptionStore!
     private let actionIDPrefix = "com.test.secret.\(UUID().uuidString)"
-    private var tempDir: URL!
-    private var tempFileURL: URL!
 
     private var writtenAccounts: [String] = []
     private var writtenDefaultsKeys: [String] = []
@@ -29,9 +27,7 @@ final class SecretActionOptionStoreTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        tempFileURL = tempDir.appendingPathComponent("secrets.json")
-        SecretStore.setFileURLForTesting(tempFileURL)
+        SecretStore.setBackendForTesting(MemorySecretBackend())
         store = SecretActionOptionStore()
         writtenAccounts = []
         writtenDefaultsKeys = []
@@ -46,10 +42,7 @@ final class SecretActionOptionStoreTests: XCTestCase {
         }
         writtenAccounts = []
         writtenDefaultsKeys = []
-        SecretStore.setFileURLForTesting(Constants.secretsFileURL)
-        if let tempDir {
-            try? FileManager.default.removeItem(at: tempDir)
-        }
+        SecretStore.resetBackendForTesting()
         try await super.tearDown()
     }
 
@@ -125,92 +118,34 @@ final class SecretActionOptionStoreTests: XCTestCase {
         )
     }
 
-    func testSecretStoreFilePermissions() {
+    func testSecretStoreRoundTripsAndDeletes() {
         XCTAssertTrue(SecretStore.set("test-key-value", account: "testAccount"))
         XCTAssertEqual(SecretStore.get(account: "testAccount"), "test-key-value")
-
-        let attrs = try? FileManager.default.attributesOfItem(atPath: tempFileURL.path)
-        let posix = attrs?[.posixPermissions] as? NSNumber
-        XCTAssertEqual(posix?.intValue, 0o600, "Secrets file must have 0600 POSIX permissions")
+        XCTAssertTrue(SecretStore.set("replaced", account: "testAccount"))
+        XCTAssertEqual(SecretStore.get(account: "testAccount"), "replaced")
+        XCTAssertTrue(SecretStore.delete(account: "testAccount"))
+        XCTAssertNil(SecretStore.get(account: "testAccount"))
+        XCTAssertTrue(SecretStore.delete(account: "testAccount"), "Deleting a missing entry succeeds")
     }
 
-    func testSecretStoreAtomicOverwriteReplacesWith0600AndCleansStagingFiles() throws {
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        FileManager.default.createFile(atPath: tempFileURL.path, contents: "{}".data(using: .utf8), attributes: [.posixPermissions: 0o644])
-
-        var attrs = try FileManager.default.attributesOfItem(atPath: tempFileURL.path)
-        var posix = (attrs[.posixPermissions] as? NSNumber)?.intValue
-        XCTAssertEqual(posix, 0o644)
-
-        XCTAssertTrue(SecretStore.set("new-secret", account: "account1"))
-        XCTAssertEqual(SecretStore.get(account: "account1"), "new-secret")
-
-        attrs = try FileManager.default.attributesOfItem(atPath: tempFileURL.path)
-        posix = (attrs[.posixPermissions] as? NSNumber)?.intValue
-        XCTAssertEqual(posix, 0o600, "Overwritten secrets file must have 0600 POSIX permissions")
-
-        let files = try FileManager.default.contentsOfDirectory(atPath: tempDir.path)
-        XCTAssertEqual(files, ["secrets.json"], "No staged temporary files should remain")
+    func testFailedWriteReportsFailureAndKeepsOldValue() {
+        let backend = MemorySecretBackend()
+        SecretStore.setBackendForTesting(backend)
+        XCTAssertTrue(SecretStore.set("old", account: "acc"))
+        backend.setFailsWrites(true)
+        XCTAssertFalse(SecretStore.set("new", account: "acc"))
+        XCTAssertEqual(SecretStore.get(account: "acc"), "old")
     }
 
-    func testSecretStoreStagedFailureCleansUpAndLeavesNoInsecureFile() throws {
-        let blockingFile = tempDir.appendingPathComponent("not_a_dir")
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: blockingFile.path, contents: Data())
-
-        let invalidSecretFile = blockingFile.appendingPathComponent("secrets.json")
-        SecretStore.setFileURLForTesting(invalidSecretFile)
-
-        XCTAssertFalse(SecretStore.set("val", account: "acc"))
-    }
-
-    func testSecretStoreCorruptedFileSelfHealsAndBacksUpCorruptedData() throws {
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let corruptedPayload = "corrupted-non-json-data".data(using: .utf8)!
-        FileManager.default.createFile(atPath: tempFileURL.path, contents: corruptedPayload, attributes: [.posixPermissions: 0o600])
-
-        // Unparseable secrets file returns nil and triggers self-healing backup
-        XCTAssertNil(SecretStore.get(account: "apiKey"), "get must return nil on unparseable secrets file")
-
-        // Self-healing: set must succeed instead of permanently locking out the user
-        XCTAssertTrue(SecretStore.set("newval", account: "apiKey"), "set must succeed after self-healing recovery")
-        XCTAssertEqual(SecretStore.get(account: "apiKey"), "newval")
-
-        // Corrupted file was safely preserved in a .corrupt.<timestamp> backup
-        let files = try FileManager.default.contentsOfDirectory(atPath: tempDir.path)
-        let backupFiles = files.filter { $0.contains("secrets.json.corrupt.") }
-        XCTAssertEqual(backupFiles.count, 1, "Corrupted file must be backed up")
-        if let backupFile = backupFiles.first {
-            let backupContent = try Data(contentsOf: tempDir.appendingPathComponent(backupFile))
-            XCTAssertEqual(backupContent, corruptedPayload, "Corrupted data must be preserved in backup file")
-        }
-
-        // New secrets.json was created cleanly
-        let newContent = try Data(contentsOf: tempFileURL)
-        let json = try JSONSerialization.jsonObject(with: newContent) as? [String: String]
-        XCTAssertEqual(json?["apiKey"], "newval")
-    }
-
-    func testSecretStoreZeroByteTruncatedFileSelfHeals() throws {
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        FileManager.default.createFile(atPath: tempFileURL.path, contents: Data(), attributes: [.posixPermissions: 0o600])
-
-        XCTAssertNil(SecretStore.get(account: "apiKey"), "get must return nil on 0-byte truncated file")
-        XCTAssertTrue(SecretStore.set("recovered", account: "apiKey"), "set must self-heal and succeed on 0-byte truncated file")
-        XCTAssertEqual(SecretStore.get(account: "apiKey"), "recovered")
-    }
-
-    func testSecretStoreStagingPermissionsNotAffectedByUmask() throws {
-        #if canImport(Darwin)
-        let oldUmask = umask(0000)
-        defer { umask(oldUmask) }
-        #endif
-
-        XCTAssertTrue(SecretStore.set("secret-under-umask", account: "umaskAccount"))
-        let attrs = try FileManager.default.attributesOfItem(atPath: tempFileURL.path)
-        let posix = (attrs[.posixPermissions] as? NSNumber)?.intValue
-        XCTAssertEqual(posix, 0o600, "Secrets file must have 0600 POSIX permissions even under umask 0000")
+    func testKeychainBackendRoundTripsUnderThrowawayService() {
+        let backend = KeychainSecretBackend(service: "com.olegy.openclip.tests.\(UUID().uuidString)")
+        defer { _ = backend.remove(account: "acc") }
+        XCTAssertNil(backend.read(account: "acc"))
+        XCTAssertTrue(backend.write("one", account: "acc"))
+        XCTAssertEqual(backend.read(account: "acc"), "one")
+        XCTAssertTrue(backend.write("two", account: "acc"))
+        XCTAssertEqual(backend.read(account: "acc"), "two")
+        XCTAssertTrue(backend.remove(account: "acc"))
+        XCTAssertNil(backend.read(account: "acc"))
     }
 }
-
-

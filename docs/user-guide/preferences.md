@@ -171,7 +171,7 @@ Select **AI** in the sidebar (the first row under Actions) to turn AI Tools on o
 | :--- | :--- | :--- |
 | **Apple Intelligence** | On-device macOS intelligence framework | macOS 26.0+ on Apple Silicon with Apple Intelligence enabled |
 | **Ollama (Local)** | Privacy-focused local LLM execution | Running Ollama instance (`http://localhost:11434`) |
-| **Cloud AI (OpenAI / Claude / Gemini / DeepSeek / Groq / OpenRouter / Custom)** | Cloud API language models | Valid API Key stored securely in `SecretStore` (`~/.openclip/secrets.json`) |
+| **Cloud AI (OpenAI / Claude / Gemini / DeepSeek / Groq / OpenRouter / Custom)** | Cloud API language models | Valid API Key stored in the login Keychain |
 | **Browser Redirect** | Opens AI query in browser | No API key required |
 
 With the Ollama preset, OpenClip asks reasoning models (e.g. Qwen 3.5, DeepSeek-R1) to skip their thinking pass, so results appear in seconds instead of minutes. The CLI presets do the same where the tool exposes a switch: Claude Code runs with `MAX_THINKING_TOKENS=0` and Codex CLI with `-c model_reasoning_effort=none`. GitHub Copilot and custom commands offer no "off" level, so they are left at their defaults.

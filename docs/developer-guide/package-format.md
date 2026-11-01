@@ -161,5 +161,5 @@ Extensions can expose user preferences rendered in the Preferences window under 
 
 ### Option Storage & Retrieval
 - Non-secret option values are saved through [`SettingsStore`](../../Sources/Core/Settings/SettingsStore.swift) using typed setting key strings: `SettingKey<String>("action.<id>.option.<identifier>", defaultValue:)`.
-- `type: "secret"` option values live in `SecretStore` (`~/.openclip/secrets.json` with POSIX 0600 permissions), never `SettingsStore`/UserDefaults — resolved via [`SecretActionOptionStore`](../../Sources/OpenClip/Platform/Extensions/SecretActionOptionStore.swift).
+- `type: "secret"` option values live in `SecretStore` (the login Keychain), never `SettingsStore`/UserDefaults — resolved via [`SecretActionOptionStore`](../../Sources/OpenClip/Platform/Extensions/SecretActionOptionStore.swift).
 - Direct `UserDefaults.standard` access is discouraged and should not be added in new code. The JavaScript runtime reads options through the injected `ActionOptionReading` store (`OpenClipJSHost`), not `UserDefaults`.

@@ -37,7 +37,7 @@ public final class AIServiceManager: ObservableObject {
     /// skip the observer body entirely, so a failed write reverts in memory once and stops.
     private var isRevertingCloudAPIKey = false
 
-    // API key is stored in ~/.openclip/secrets.json via SecretStore.
+    // API key is stored in the Keychain via SecretStore.
     @Published public var cloudAPIKey: String {
         didSet {
             guard !isRevertingCloudAPIKey else { return }
@@ -309,7 +309,7 @@ public final class AIServiceManager: ObservableObject {
     private static let cloudAPIKeyAccount = "aiCloudAPIKey"
 
     private init() {
-        // Load the API key from the SecretStore (~/.openclip/secrets.json)
+        // Load the API key from the SecretStore (Keychain)
         if let stored = SecretStore.get(account: Self.cloudAPIKeyAccount) {
             self.cloudAPIKey = stored
         } else if let legacy = UserDefaults.standard.string(forKey: "aiCloudAPIKey"), !legacy.isEmpty {

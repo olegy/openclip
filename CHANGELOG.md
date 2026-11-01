@@ -4,6 +4,12 @@ What changes in each OpenClip Lite release. `scripts/release.sh` publishes the s
 version being released as the GitHub release notes and as the notes in the update window, and
 refuses to release a version without one. Newest first; one `## <version>` heading per release.
 
+## 1.9.2-lite.2
+
+- The cloud AI key and secret extension options are stored in the login Keychain instead of the
+  plain-text file `~/.openclip/secrets.json`. Existing values are not migrated: enter them again,
+  and delete the old file.
+
 ## 1.9.2-lite.1
 
 Based on OpenClip 1.9.2; only the fixes below were ported from 1.8.2 to 1.9.2.

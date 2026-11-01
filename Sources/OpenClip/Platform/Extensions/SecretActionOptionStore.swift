@@ -2,7 +2,7 @@
 // OpenClip
 //
 // Composite option store backing extension action configuration. Secret options route
-// to SecretStore (~/.openclip/secrets.json) — never UserDefaults — keyed by
+// to SecretStore (Keychain) — never UserDefaults — keyed by
 // `ActionOptionKey.defaultsKey`; empty secret values delete the entry. Everything
 // else delegates to SettingsActionOptionStore under the same `action.<id>.option.<optID>` key.
 import Foundation

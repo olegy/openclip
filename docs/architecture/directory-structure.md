@@ -141,7 +141,7 @@ Sources/
     │   │   ├── ExtensionUpdateManager.swift  # Extension store update checker
     │   │   ├── OpenClipSnippetParser+DefaultFactory.swift # Snippet parser factory integration
     │   │   ├── RemoteExtensionInstaller.swift # Zip download and extraction installer
-    │   │   └── SecretActionOptionStore.swift # Composite option store; .secret options → SecretStore (~/.openclip/secrets.json)
+    │   │   └── SecretActionOptionStore.swift # Composite option store; .secret options → SecretStore (Keychain)
     │   ├── DeepLinkRouter.swift              # Acts on inbound openclip:// URLs (install, open-settings)
     │   ├── HotkeyManager.swift               # Global shortcuts: ⌥⌘C reads the selection on demand and opens the palette (or hides it), per-action hotkeys, Capture Text
     │   ├── Inline/
@@ -163,7 +163,7 @@ Sources/
     │   │   ├── OpenClipJSHostSupport.swift   # Threading/support boxes for the JS host (TimeoutFlag, gate, JS context/value/runloop boxes, promise state)
     │   │   ├── OpenClipModuleLoader.swift    # CommonJS require() module loader and containment validator
     │   │   └── ShortcutAction.swift          # type: "shortcut" runtime → .runShortcut(name:input:)
-    │   ├── SecretStore.swift                 # File-backed secrets storage (~/.openclip/secrets.json, POSIX 0600)
+    │   ├── SecretStore.swift                 # Keychain-backed secrets storage
     │   ├── Selection/                        # Selection retrieval bridge to OpenSelection package
     │   │   ├── CollapsedCaretProbe.swift     # Focused text control with a collapsed caret → the palette hotkey sends no ⌘C
     │   │   └── OpenSelectionBridge.swift     # Re-exports OpenSelection, maps Core domain types, logging bridge

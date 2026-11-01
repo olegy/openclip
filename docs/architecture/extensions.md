@@ -120,7 +120,7 @@ Notes:
   runs through `ShellProcessRunner`, which arms a kill watchdog only when the invocation carries an explicit
   `timeout` — a liveness guard, not a privilege guard. With none (the default for loading tasks) the child runs
   until it exits; users can abort running loading tasks anytime by clicking the loading toast. When armed, the runner kills the direct child, the process group when the child is the leader, and remaining descendants.
-- **Secrets.** Option values of `type: "secret"` live in `SecretStore` (`~/.openclip/secrets.json` with POSIX 0600 permissions) and never reach UserDefaults or the manifest itself.
+- **Secrets.** Option values of `type: "secret"` live in `SecretStore` (the login Keychain) and never reach UserDefaults or the manifest itself.
 
 ---
 

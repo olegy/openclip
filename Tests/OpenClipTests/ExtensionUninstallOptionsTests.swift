@@ -37,11 +37,10 @@ final class ExtensionUninstallOptionsTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("openclip-uninstall-\(UUID())")
         let source = root.appendingPathComponent("source/Fixture.openclipext")
         let installedDirectory = root.appendingPathComponent("installed")
-        let secretsURL = root.appendingPathComponent("secrets.json")
-        SecretStore.setFileURLForTesting(secretsURL)
+        SecretStore.setBackendForTesting(MemorySecretBackend())
         defer {
             TestIsolation.reset()
-            SecretStore.setFileURLForTesting(Constants.secretsFileURL)
+            SecretStore.resetBackendForTesting()
             try? FileManager.default.removeItem(at: root)
         }
 
@@ -119,11 +118,10 @@ final class ExtensionUninstallOptionsTests: XCTestCase {
             XCTAssertEqual(options.stringValue(actionID: unrelatedID, option: option), "keep")
         }
         XCTAssertEqual(SecretStore.get(account: "aiCloudAPIKey"), "keep-cloud-key")
-        let remainingSecrets = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: secretsURL)) as? [String: String])
-        let expectedSecretKeys = unrelatedOptions.filter { $0.type == .secret }.map {
-            ActionOptionKey.defaultsKey(actionID: unrelatedID, optionID: $0.identifier)
-        } + ["aiCloudAPIKey"]
-        XCTAssertEqual(Set(remainingSecrets.keys), Set(expectedSecretKeys))
+        for option in unrelatedOptions where option.type == .secret {
+            let account = ActionOptionKey.defaultsKey(actionID: unrelatedID, optionID: option.identifier)
+            XCTAssertNotNil(SecretStore.get(account: account), "Unrelated secret \(option.identifier) must survive the uninstall")
+        }
 
         manager.actionFactory = DefaultActionFactory(optionStore: options)
         let reinstalled = try await manager.installExtension(from: source, targetDir: installedDirectory)

@@ -58,9 +58,11 @@ areas; stale debt notes are worse than none.
   (`popupTheme`, `popupThemeColor`) are read through `@Setting` with `SettingKey` definitions. Migrating to
   `SettingsStore` is ongoing — **don't add new direct call sites.** (`startAtLogin` was consolidated
   onto `SettingKey.startAtLogin` — `LaunchAtLoginManager` persists through `DefaultSettingsStore`.)
-- **Secrets live in SecretStore, not UserDefaults or macOS Keychain.** Sensitive credentials
-  (the cloud AI API key and action secret options) use `SecretStore` (`~/.openclip/secrets.json`
-  with 0600 POSIX permissions), replacing macOS Keychain to avoid code-signing ACL prompts.
+- **Secrets live in SecretStore, backed by the login Keychain, not UserDefaults or a file.** Sensitive
+  credentials (the cloud AI API key and action secret options) use `SecretStore` (generic passwords,
+  service `<bundle id>.secrets`). Lite signs with a stable identity, so access survives updates; an
+  ad-hoc build would be asked again after each rebuild. Under XCTest the store is in memory
+  (`MemorySecretBackend`), and there is no migration from the old `~/.openclip/secrets.json`.
   `AIServiceManager.cloudAPIKey` is `@Published`, backed by `SecretStore` (account `aiCloudAPIKey`);
   do not convert it back to `@AppStorage`. A one-time migration reads the old `UserDefaults`
   `"aiCloudAPIKey"` key, then deletes it.
@@ -531,7 +533,7 @@ or prevent arbitrary side effects authored inside them.
   writing the real preferences domain.
 - **Isolated in-memory test doubles and seams.** Store-backed tests use `MemorySettingsStore`
   rather than writing the real preferences domain, and `SecretActionOptionStoreTests` redirects to a
-  temporary file (`SecretStore.setFileURLForTesting`),
+  in-memory backend (`SecretStore.setBackendForTesting`),
   eliminating live system pasteboard/keychain mutation during test runs.
 - **Known failures (baseline 2026-10-31, OpenClip Lite, 1321 tests):** none — the full suite
   passed with 0 failures.

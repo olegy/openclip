@@ -34,7 +34,7 @@ when they are useful here.
   `openclip://` URL scheme has no pause either).
 - **Updates** come from this repository's GitHub Releases through Sparkle, never from the
   original's feed: checked once a day, installed only when you choose to (About → Check for
-  Updates). Extensions are checked once a day too. The version is the original's plus a Lite revision (e.g. `1.9.2-lite.1`).
+  Updates). Extensions are checked once a day too. The version is the original's plus a Lite revision (e.g. `1.9.2-lite.2`).
 - **Bundle ID** is `com.olegy.openclip`, so Lite installs next to the original OpenClip.
 
 ## Building
