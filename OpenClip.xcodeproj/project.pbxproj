@@ -353,6 +353,7 @@
 		E94E8E1A91416CA1E54B9BFD /* MultiActionExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8898F579917FE375DDEE7778 /* MultiActionExtensionTests.swift */; };
 		EB0DB3A8EC936D90D0D35D98 /* DefineActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BCD81A735F9A377FDE4DB32 /* DefineActionTests.swift */; };
 		EB7C4434ED5664903DE4C37C /* ActionDuplicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB99B16B6E2B91267FEF3BDF /* ActionDuplicator.swift */; };
+		EB8D4C15D70D0227F804622B /* FocusedApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A4E55F2260C0338623BB09C /* FocusedApplication.swift */; };
 		EBBD4760385941DFFB5BE503 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5424DA244495CA3CE48F83B1 /* Sparkle */; };
 		EBBDD5144B39E9622CA4F910 /* BuiltinRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B31769AC6C38931924A68F4 /* BuiltinRegistry.swift */; };
 		EBDE5DA75D4148EBBD2BEE05 /* LogCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 382F45A3CA8BFDC01E3132BD /* LogCoreTests.swift */; };
@@ -487,6 +488,7 @@
 		2880EA47FA384B00CFAD2877 /* OpenClipSnippetParser+DefaultFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OpenClipSnippetParser+DefaultFactory.swift"; sourceTree = "<group>"; };
 		28C251D684663DDC867A7E7C /* DebugLogStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogStoreTests.swift; sourceTree = "<group>"; };
 		296DBB8D2CA1C1D578E27343 /* StoreIcon.svg */ = {isa = PBXFileReference; path = StoreIcon.svg; sourceTree = "<group>"; };
+		2A4E55F2260C0338623BB09C /* FocusedApplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusedApplication.swift; sourceTree = "<group>"; };
 		2A96CF5AAB17BF23E200921A /* ToastView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastView.swift; sourceTree = "<group>"; };
 		2B8E594506CA8101F91FE94C /* AIConversationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIConversationTests.swift; sourceTree = "<group>"; };
 		2C2E0CE18FC287126307E67B /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
@@ -846,6 +848,7 @@
 			isa = PBXGroup;
 			children = (
 				27E457EA5A2D22993C2E3CD6 /* CollapsedCaretProbe.swift */,
+				2A4E55F2260C0338623BB09C /* FocusedApplication.swift */,
 				F5F4AFF322060F5A1943DFDD /* OpenSelectionBridge.swift */,
 			);
 			path = Selection;
@@ -1927,6 +1930,7 @@
 				C0E71AC2BEA935E486797943 /* ExtensionUpdateManager.swift in Sources */,
 				3FCC9285E343CE0E0A7D2783 /* ExtensionsDirectoryWatcher.swift in Sources */,
 				1302C89033CA876F66631A4B /* ExtensionsStoreView.swift in Sources */,
+				EB8D4C15D70D0227F804622B /* FocusedApplication.swift in Sources */,
 				4B02DF82BA5A3B961C1BE2C5 /* GeneralTabView.swift in Sources */,
 				BE8920F343B5FC0801C79310 /* HotkeyManager.swift in Sources */,
 				DCC694DC2D481C35063D62B4 /* IconPickerView.swift in Sources */,
@@ -2082,7 +2086,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = "1.9.2-lite.$(OPENCLIP_LITE_REVISION)";
-				OPENCLIP_LITE_REVISION = 2;
+				OPENCLIP_LITE_REVISION = 3;
 				OPENCLIP_UPSTREAM_BUILD = 26;
 				PRODUCT_BUNDLE_IDENTIFIER = com.olegy.openclip.dev;
 				PRODUCT_MODULE_NAME = OpenClip;
@@ -2116,7 +2120,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = "1.9.2-lite.$(OPENCLIP_LITE_REVISION)";
-				OPENCLIP_LITE_REVISION = 2;
+				OPENCLIP_LITE_REVISION = 3;
 				OPENCLIP_UPSTREAM_BUILD = 26;
 				PRODUCT_BUNDLE_IDENTIFIER = com.olegy.openclip;
 				PRODUCT_MODULE_NAME = OpenClip;

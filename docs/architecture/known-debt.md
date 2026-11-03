@@ -468,10 +468,14 @@ or prevent arbitrary side effects authored inside them.
   capture and detached menu work; response IDs correlate hotkey delivery decisions.
   Reports retain structured metrics without duplicating the app's completion line. Phase
   measurements overlap; they are diagnostic boundaries, not additive latency components.
-- **Delayed paste checks rely on the frontmost app only.** With no passive monitor there is no
+- **Delayed paste checks rely on the focus-owning app only.** With no passive monitor there is no
   selection generation: the hotkey read binds copy authorization to the captured source PID and
-  request, and delivery downgrades a paste to a copy when the source app is no longer frontmost.
+  request, and delivery downgrades a paste to a copy when the source app no longer owns focus.
   A focus or selection change inside the same app between the read and the paste is not detected.
+  "Owns focus" is `FocusedApplication.current()`: the frontmost app, or another app whose
+  non-activating panel is key (Tinycast's Note), whose PID is the system-wide AX focused
+  application's. OpenClip's own palette never counts. After the palette hides, macOS decides
+  whether such a panel gets key focus back; when it does not, a paste into it degrades to a copy.
 - **OpenSelection is published and pinned to 2.15.3.** `project.yml` resolves the remote
   tag at `a421effaebe473eb121fe0ebc469117a1de325e0`; the local checkout is optional.
   Inspect and menu budgets use monotonic clocks. Inspect deliberately leaves the initial

@@ -358,6 +358,98 @@ final class HotkeyManagerTests: XCTestCase {
         XCTAssertEqual(resolved.context.rtf, "{\\rtf1 Fresh text}")
         XCTAssertEqual(resolved.context.flavors, sampleFlavors)
     }
+
+    // MARK: - Another app's non-activating panel
+
+    /// A Tinycast Note: a non-activating panel holds key focus while Zap stays frontmost.
+    nonisolated private static let zapPID: pid_t = 1001
+    nonisolated private static let panelPID: pid_t = 3003
+
+    nonisolated private static func panelTextArea(selectedText: String?) -> AXElementInspector.Target {
+        AXElementInspector.Target(
+            focusedApp: AXUIElementCreateApplication(panelPID),
+            role: "AXTextArea",
+            selectedText: selectedText
+        )
+    }
+
+    /// The root cause: reading for the frontmost app while the AX focus belongs to the panel's
+    /// process makes the cascade reject the foreign focused element as `targetChanged`.
+    func testReadForFrontmostAppRejectsFocusInAnotherProcess() async {
+        let manager = HotkeyManager.shared
+        manager.retriever = SelectionRetrievalCoordinator(
+            inspect: { _ in Self.panelTextArea(selectedText: "note text") }, copyCapture: nil)
+        let response = await manager.collectTriggerResponse(
+            frontmostApp: MockFrontmostApp(bundleID: "dev.zap.Zap", pid: Self.zapPID), allowsEmptyText: true)
+        XCTAssertEqual(response.status, .targetChanged)
+        XCTAssertNil(response.context)
+    }
+
+    func testTriggerTargetIsTheFocusedPanelsApp() {
+        let zap = MockFrontmostApp(bundleID: "dev.zap.Zap", pid: Self.zapPID)
+        let tinycast = MockFrontmostApp(bundleID: "com.olegy.tinycast", pid: Self.panelPID)
+        let target = FocusedApplication.current(frontmost: zap, ownerPID: Self.panelPID, ownPID: 1,
+            runningApplication: { $0 == Self.panelPID ? tinycast : nil })
+        XCTAssertTrue(target === tinycast)
+    }
+
+    func testTriggerTargetStaysFrontmostWithoutAnotherFocusOwner() {
+        let zap = MockFrontmostApp(bundleID: "dev.zap.Zap", pid: Self.zapPID)
+        let tinycast = MockFrontmostApp(bundleID: "com.olegy.tinycast", pid: Self.panelPID)
+        let running: (pid_t) -> NSRunningApplication? = { $0 == Self.panelPID ? tinycast : nil }
+        // Ordinary app: focus and frontmost agree.
+        XCTAssertTrue(FocusedApplication.current(frontmost: zap, ownerPID: Self.zapPID, ownPID: 1, runningApplication: running) === zap)
+        // AX does not answer.
+        XCTAssertTrue(FocusedApplication.current(frontmost: zap, ownerPID: nil, ownPID: 1, runningApplication: running) === zap)
+        // The focus owner is not a running app.
+        XCTAssertTrue(FocusedApplication.current(frontmost: zap, ownerPID: 4004, ownPID: 1, runningApplication: running) === zap)
+        // OpenClip's own palette is key: the source app is still the one underneath.
+        XCTAssertTrue(FocusedApplication.current(frontmost: zap, ownerPID: Self.panelPID, ownPID: Self.panelPID, runningApplication: running) === zap)
+    }
+
+    func testPaletteReadsSelectionInAnotherAppsNonActivatingPanel() async {
+        let manager = HotkeyManager.shared
+        manager.frontmostPIDProvider = { Self.panelPID }
+        manager.retriever = SelectionRetrievalCoordinator(
+            inspect: { _ in Self.panelTextArea(selectedText: "note text") }, copyCapture: nil)
+        let response = await manager.collectTriggerResponse(
+            frontmostApp: MockFrontmostApp(bundleID: "com.olegy.tinycast", pid: Self.panelPID), allowsEmptyText: true)
+        XCTAssertEqual(response.status, .selection)
+        XCTAssertEqual(response.context?.text, "note text")
+        XCTAssertEqual(response.context?.sourceApp.bundleIdentifier, "com.olegy.tinycast")
+    }
+
+    func testPaletteOverPanelWithoutSelectionFallsBackToClipboard() async {
+        let manager = HotkeyManager.shared
+        let board = NSPasteboard.general
+        let snapshot = PasteboardSnapshot.capture(board)
+        defer { snapshot.restore(to: board) }
+        board.clearContents()
+        board.setString("clipboard text", forType: .string)
+        manager.frontmostPIDProvider = { Self.panelPID }
+        manager.retriever = SelectionRetrievalCoordinator(
+            inspect: { _ in Self.panelTextArea(selectedText: nil) }, copyCapture: nil)
+        let response = await manager.collectTriggerResponse(
+            frontmostApp: MockFrontmostApp(bundleID: "com.olegy.tinycast", pid: Self.panelPID), allowsEmptyText: true)
+        XCTAssertEqual(response.status, .clipboardFallback)
+        XCTAssertEqual(response.context?.text, "clipboard text")
+    }
+
+    /// The race guard still holds for the panel: focus leaving it during the read drops the result.
+    func testFocusLeavingPanelDuringReadStillReportsTargetChanged() async {
+        let manager = HotkeyManager.shared
+        manager.frontmostPIDProvider = { Self.panelPID }
+        manager.retriever = SelectionRetrievalCoordinator(
+            inspect: { _ in Self.panelTextArea(selectedText: nil) },
+            copyCapture: { _ in
+                await MainActor.run { manager.frontmostPIDProvider = { Self.zapPID } }
+                return Core.TextResult(text: "stale text")
+            })
+        let response = await manager.collectTriggerResponse(
+            frontmostApp: MockFrontmostApp(bundleID: "com.olegy.tinycast", pid: Self.panelPID), allowsEmptyText: true)
+        XCTAssertEqual(response.status, .targetChanged)
+        XCTAssertNil(response.context)
+    }
 }
 
 
@@ -391,4 +483,5 @@ private final class MockFrontmostApp: NSRunningApplication {
 
     override var bundleIdentifier: String? { bundleID }
     override var processIdentifier: pid_t { pid }
+    override var isTerminated: Bool { false }
 }

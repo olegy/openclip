@@ -24,7 +24,10 @@ public final class HotkeyManager {
     private weak var popupController: PopupWindowController?
     private weak var captureTextController: CaptureTextController?
     internal var retriever: SelectionRetrievalCoordinator?
-    internal var frontmostPIDProvider: @MainActor @Sendable () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier }
+    /// The PID that must still own keyboard focus for a read to count — the focus owner, which
+    /// differs from the frontmost app while another app's non-activating panel is key
+    /// (`FocusedApplication`). Injectable for tests.
+    internal var frontmostPIDProvider: @MainActor @Sendable () -> pid_t? = { FocusedApplication.current()?.processIdentifier }
     private var cancellables = Set<AnyCancellable>()
     private var registeredHotkeyIDs: Set<String> = []
     private var popupTriggerTask: Task<Void, Never>?
@@ -83,7 +86,7 @@ public final class HotkeyManager {
     func enableCaptureCancellation() { KeyboardShortcuts.enable(.cancelCaptureText) }
     func disableCaptureCancellation() { KeyboardShortcuts.disable(.cancelCaptureText) }
 
-    public func handleTogglePopup(frontmostApp: NSRunningApplication? = NSWorkspace.shared.frontmostApplication) {
+    public func handleTogglePopup(frontmostApp: NSRunningApplication? = FocusedApplication.current()) {
         // A second press cancels a selection read that has not presented yet.
         if popupTriggerRequestID != nil {
             popupTriggerTask?.cancel()
@@ -119,7 +122,7 @@ public final class HotkeyManager {
                   KeyboardShortcuts.isEnabled,
                   self.popupTriggerRequestID == requestID,
                   let trigger else { return }
-            if let requestedPID, let currentPID = NSWorkspace.shared.frontmostApplication?.processIdentifier, currentPID != requestedPID {
+            if let requestedPID, let currentPID = self.frontmostPIDProvider(), currentPID != requestedPID {
                 return
             }
             if let frontmostApp, !Self.triggerAllowed(frontmost: frontmostApp) { return }
@@ -154,7 +157,7 @@ public final class HotkeyManager {
     /// The palette's input — the on-demand read (`collectTrigger`), except that a collapsed caret
     /// sends no ⌘C (`CollapsedCaretProbe`) and copied files are not clipboard text.
     internal func resolvePaletteTrigger(
-        frontmostApp: NSRunningApplication? = NSWorkspace.shared.frontmostApplication,
+        frontmostApp: NSRunningApplication? = FocusedApplication.current(),
         requestID: UUID? = nil,
         requestedPID: pid_t? = nil
     ) async -> (context: SelectionContext, canPaste: Bool?)? {
@@ -198,7 +201,7 @@ public final class HotkeyManager {
     /// When `frontmostApp` is `nil` (common during clipboard-manager handoffs) the method skips
     /// the per-app gating, falling straight through to clipboard / empty-context.
     internal func resolveSynchronousTrigger(
-        frontmostApp: NSRunningApplication? = NSWorkspace.shared.frontmostApplication
+        frontmostApp: NSRunningApplication? = FocusedApplication.current()
     ) -> (context: SelectionContext, canPaste: Bool?)? {
         // When an identifiable frontmost app exists — including a bundle-less one identified by
         // process name or executable path — apply per-app gating. When it is nil (e.g. during a
@@ -316,7 +319,7 @@ public final class HotkeyManager {
     internal var onTriggerOutcome: ((SelectionTriggerResponse) -> Void)?
 
     internal func collectTrigger(
-        frontmostApp: NSRunningApplication? = NSWorkspace.shared.frontmostApplication,
+        frontmostApp: NSRunningApplication? = FocusedApplication.current(),
         allowsEmptyText: Bool = false, requestID: UUID? = nil, requestedPID: pid_t? = nil,
         skipsCopyOnCollapsedCaret: Bool = false
     ) async -> (context: SelectionContext, canPaste: Bool?)? {
@@ -328,7 +331,7 @@ public final class HotkeyManager {
     }
 
     internal func collectTriggerResponse(
-        frontmostApp: NSRunningApplication? = NSWorkspace.shared.frontmostApplication,
+        frontmostApp: NSRunningApplication? = FocusedApplication.current(),
         allowsEmptyText: Bool = false,
         requestID: UUID? = nil,
         requestedPID: pid_t? = nil,

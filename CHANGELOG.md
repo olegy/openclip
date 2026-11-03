@@ -4,6 +4,13 @@ What changes in each OpenClip Lite release. `scripts/release.sh` publishes the s
 version being released as the GitHub release notes and as the notes in the update window, and
 refuses to release a version without one. Newest first; one `## <version>` heading per release.
 
+## 1.9.2-lite.3
+
+- The palette shortcut works while another app's floating panel has keyboard focus (a Tinycast
+  Note or palette, and other panels that take focus without activating their app). It reads the
+  selection in that panel, or opens on the clipboard when nothing is selected, instead of doing
+  nothing.
+
 ## 1.9.2-lite.2
 
 - The cloud AI key and secret extension options are stored in the login Keychain instead of the

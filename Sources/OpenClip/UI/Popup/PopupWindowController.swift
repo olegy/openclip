@@ -82,10 +82,10 @@ public class PopupWindowController {
     /// its original context. Internal for tests.
     var inFlightDeliveryContext: DeliveryContext? = nil
 
-    /// Provider for the current frontmost application. Defaults to NSWorkspace.shared.frontmostApplication.
-    /// Injected for testing app-switching scenarios.
+    /// Provider for the app that owns keyboard focus — the frontmost app, or another app whose
+    /// non-activating panel is key (`FocusedApplication`). Injected for testing app-switching scenarios.
     var frontmostApplicationProvider: @MainActor () -> NSRunningApplication? = {
-        NSWorkspace.shared.frontmostApplication
+        FocusedApplication.current()
     }
 
     /// Probes whether the frontmost app supports Paste. Injected for tests.
@@ -328,7 +328,7 @@ public class PopupWindowController {
     /// hide() is the only thing that clears it.
     private func captureFrontmostAppIfNeeded() {
         guard previousFrontmostApp == nil,
-              let app = NSWorkspace.shared.frontmostApplication,
+              let app = FocusedApplication.current(),
               app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
         previousFrontmostApp = app
     }
@@ -1036,7 +1036,7 @@ public class PopupWindowController {
 
     /// The frontmost app at the moment an in-place answer lands — pasting is only safe into the
     /// app the selection came from. Settable for tests.
-    var frontmostBundleIDProvider: @MainActor () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
+    var frontmostBundleIDProvider: @MainActor () -> String? = { FocusedApplication.current()?.bundleIdentifier }
 
     /// Runs a palette instruction on the selection (or standalone without context if `includeContext` is false).
     /// `replace` pastes the answer over the selection (⏎); otherwise the answer streams into the result card (⇧⏎),
