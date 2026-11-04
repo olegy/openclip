@@ -330,16 +330,8 @@ areas; stale debt notes are worse than none.
 
 ## Screen text capture
 
-Capture Text has no default shortcut and no menu bar item; the user assigns a shortcut in
-General → Shortcuts. It starts a one-shot ScreenCaptureKit capture after a per-screen crosshair
-drag (Esc cancels; `cancelCaptureText` is enabled only while capturing). Vision recognizes the text
-locally. `CaptureTextController.deliverRecognizedText` copies nonempty text through the shared
-clipboard coordinator, rechecking cancellation and session validity after acquiring its lease so
-superseded recognition does not overwrite the clipboard, and confirms with a content-free
-"Text copied" toast at the release point (`CaptureTextToastAnchor`). It does not open the popup.
-Switching to another app cancels a pending capture. Screen Recording access is requested by the
-system on first capture (General also has a Screen Recording permission row); capture errors show
-System Settings guidance.
+Removed in Lite (1.9.2-lite.4): no Capture Text, no ScreenCaptureKit/Vision OCR, no Screen
+Recording permission. Accessibility is the only TCC permission the app uses.
 
 Extension `requirements.input` separates optional input, nonblank text, a live selection, and a
 confirmed editable selection; legacy `requiresSelection` maps to `text`/`optional`. Selection-bound

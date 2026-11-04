@@ -17,7 +17,6 @@ The **General** page configures shortcuts, appearance, launch options, and permi
 
 - **Shortcuts**:
   - **Command Palette**: The global hotkey (default `⌥⌘C`) that reads the selected text — or the clipboard when nothing is selected — and opens the palette. Pressing it again closes the palette.
-  - **Capture Text**: Select a screen region and copy its text. No shortcut is set by default.
 - **Appearance**: the palette's look, shared by the result card and toasts — see [Popup Appearance & Theme](#popup-appearance--theme).
 - **Save Location**: Where file results are saved (Downloads by default).
 - **App**:
@@ -25,7 +24,6 @@ The **General** page configures shortcuts, appearance, launch options, and permi
   - **Start at Login**: Launches OpenClip automatically when you log in.
 - **Permissions**:
   - **Accessibility Access**: Required to read the selected text and to paste.
-  - **Screen Recording**: Required by Capture Text.
 
 ---
 

@@ -85,8 +85,8 @@ Candidates for a later iteration:
 - **Running actions** (`openclip run <action-id>`) — headless invocation with the result on stdout.
   A CLI is the right transport for this, not a URL callback.
 - **Capability discovery** (`openclip list --json`) — the runnable actions and their ids.
-- **App Intents / Shortcuts integration** — `Run OpenClip Action` and `Capture Text`, which
-  return values natively.
+- **App Intents / Shortcuts integration** — `Run OpenClip Action`, which returns values
+  natively.
 - **macOS Services** — expose actions into the Services menu / context menu.
 
 ---

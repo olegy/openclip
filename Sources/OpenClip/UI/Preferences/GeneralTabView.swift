@@ -35,17 +35,6 @@ struct GeneralTab: View {
                     ) {
                         Shortcut(for: .togglePopup)
                     }
-
-                    SettingsDivider()
-
-                    SettingsRow(
-                        title: "Capture Text",
-                        subtitle: "Select a screen region and copy its text.",
-                        systemImage: "viewfinder",
-                        plainIcon: true
-                    ) {
-                        Shortcut(for: .captureText)
-                    }
                 }
 
                 AppearanceSettingsCard()
@@ -141,17 +130,6 @@ struct GeneralTab: View {
                         isGranted: permissionManager.isAccessibilityGranted
                     ) {
                         permissionManager.requestAccessibilityPermission()
-                    }
-
-                    SettingsDivider()
-
-                    permissionRow(
-                        title: "Screen Recording",
-                        subtitle: "Required by Capture Text.",
-                        systemImage: "rectangle.dashed.badge.record",
-                        isGranted: permissionManager.isScreenRecordingGranted
-                    ) {
-                        permissionManager.requestScreenRecordingPermission()
                     }
                 }
             }

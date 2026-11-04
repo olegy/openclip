@@ -12,7 +12,7 @@ What Lite is (the README lists it for users):
 - **Palette footer** shows the text source as a selection/clipboard switch and the start of the text (`PaletteSourceFooter`); files copied in Finder are not clipboard text (`HotkeyManager.clipboardHoldsFiles`).
 - **Palette rows** show alias → hotkey → ⌘N, each only when set (`PaletteRowAccessories`).
 - **A collapsed caret means no selection:** a zero-length `AXSelectedTextRange` in the focused text control sends no ⌘C (`CollapsedCaretProbe`).
-- **Capture Text** copies the recognized text and shows a toast; it never opens the popup, has no default shortcut and no menu bar item.
+- **No Capture Text / OCR.** Lite removed upstream's screen text capture so it never needs the Screen Recording permission; Accessibility is the only permission. Don't port it back.
 - **Menu bar menu** is Settings and Quit only — no Actions submenu, no update item (`StatusBarController`).
 - **Actions in Settings have one home each:** the sidebar's static Actions group has AI, Built-in, Custom and Extensions (`SettingsPage.actionPages`, `SettingsDestination.path`); the Palette page only lists them, to pin and switch them. Rows (`ActionSettingsRow`) are read-only — a click opens the action's page. There are no user action groups and no drag order: the palette opens with pinned actions (`PinnedActionStore`, max 10), then most recent, then by title (`PaletteOrder`).
 - **Per-app policy** comes only from the built-in `DefaultAppRules` catalog (retrieval mode, deny paste); there are no user app rules or `rules.json`.

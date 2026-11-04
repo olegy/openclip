@@ -15,7 +15,6 @@ import SDWebImageSVGCoder
 class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private var statusBarController: StatusBarController?
     private var popupController: PopupWindowController?
-    private var captureTextController: CaptureTextController?
     private var aiActionSync: AIActionSync?
     private var extensionsWatcher: ExtensionsDirectoryWatcher?
 
@@ -31,7 +30,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        captureTextController?.cancel()
         ExtensionUpdateManager.shared.stopAutomaticUpdates()
     }
 
@@ -101,11 +99,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         let controller = PopupWindowController()
         popupController = controller
         
-        let captureController = CaptureTextController(popupController: controller)
-        captureTextController = captureController
-
         // Setup global shortcut hotkey manager
-        HotkeyManager.shared.setup(popupController: controller, captureTextController: captureController)
+        HotkeyManager.shared.setup(popupController: controller)
 
         let optionStore = SecretActionOptionStore()
         ExtensionManager.shared.actionFactory = DefaultActionFactory(optionStore: optionStore)

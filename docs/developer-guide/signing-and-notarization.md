@@ -166,7 +166,7 @@ Two rules when editing that file:
     and certificate leaf[subject.CN] = "Apple Development: …" and certificate 1[field.…] exists
   ```
 
-  Renewing the certificate changes that requirement, so Accessibility and Screen Recording are
+  Renewing the certificate changes that requirement, so Accessibility is
   granted once more after the first release signed with the new one.
 - **The Team ID is a commitment.** Sparkle checks that an update is signed by the same team as the
   installed app. Changing teams means installed copies reject every future update.

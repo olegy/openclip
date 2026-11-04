@@ -22,11 +22,10 @@ when they are useful here.
 - **Palette rows** show the action's alias, hotkey and ⌘-number.
 - **A collapsed caret means no selection:** the palette sends no ⌘C then, so editors that copy
   the whole line (Obsidian, VS Code) fall back to the clipboard.
-- **Capture Text** copies the recognized text and confirms it with a notification. It runs only
-  from its own shortcut, which has no default.
+- **No Capture Text (screen OCR)**, so OpenClip never asks for Screen Recording — Accessibility
+  is the only permission.
 - **Settings:** no Customize page (theme, color mode and notification size are in General), no
-  App Rules, no "Show as" for actions. General shows the Screen Recording permission that
-  Capture Text needs.
+  App Rules, no "Show as" for actions.
 - **Actions in Settings:** one home per kind of action — AI, Built-in, Custom, Extensions — and a
   Palette page that lists them all. No action groups and no drag-to-order: pin up to 10 actions to
   the top of the palette; the rest follow by most recent use.

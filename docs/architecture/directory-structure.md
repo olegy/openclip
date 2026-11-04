@@ -98,7 +98,7 @@ Sources/
 │       ├── TextDiff.swift                    # Character-level Myers diff (input → result) behind the result card's diff view
 │       └── TextPlaceholderEngine.swift       # Dynamic text template engine ({text}, {query}, {html}, {rtf}, {matched}, {captureN}, {bundleID})
 └── OpenClip/                                 # App Target (macOS App / AppKit / SwiftUI)
-    ├── AppDelegate.swift                     # Lifecycle, onboarding check (hasCompletedOnboarding), hotkey + Capture Text setup
+    ├── AppDelegate.swift                     # Lifecycle, onboarding check (hasCompletedOnboarding), hotkey setup
     ├── OpenClipApp.swift                     # SwiftUI App Entrypoint
     ├── StatusBarController.swift             # Status bar item and menu: Settings, updates, Quit (reads showMenuBarIcon)
     ├── AI/                                   # AI Assistant & Providers
@@ -143,16 +143,14 @@ Sources/
     │   │   ├── RemoteExtensionInstaller.swift # Zip download and extraction installer
     │   │   └── SecretActionOptionStore.swift # Composite option store; .secret options → SecretStore (Keychain)
     │   ├── DeepLinkRouter.swift              # Acts on inbound openclip:// URLs (install, open-settings)
-    │   ├── HotkeyManager.swift               # Global shortcuts: ⌥⌘C reads the selection on demand and opens the palette (or hides it), per-action hotkeys, Capture Text
+    │   ├── HotkeyManager.swift               # Global shortcuts: ⌥⌘C reads the selection on demand and opens the palette (or hides it), per-action hotkeys
     │   ├── Inline/
     │   │   └── InlineResultEvaluator.swift   # Tiered inline result evaluation for palette rows (isInlineResult actions)
     │   ├── InstalledAppsScanner.swift        # Running and installed app scanner
     │   ├── LaunchAtLoginManager.swift        # Login item manager (SMAppService; persisted state via SettingKey.startAtLogin)
-    │   ├── OCR/
-    │   │   └── CaptureTextController.swift   # Capture Text: region selection + Vision OCR, copies the text and shows a toast
     │   ├── PaletteRowShortcuts.swift         # ⌘1…⌘9 palette-row global hot keys, active only while the palette shows
     │   ├── PasteAvailabilityProbe.swift      # AX probe walking Edit ▸ Paste menu items
-    │   ├── PermissionManager.swift           # Accessibility and Screen Recording permission manager
+    │   ├── PermissionManager.swift           # Accessibility permission manager
     │   ├── Runtimes/                         # Runtime action executors requiring AppKit / JavaScriptCore
     │   │   ├── AppleScriptAction.swift       # AppleScript action runtime
     │   │   ├── JavaScriptAction.swift        # Manifests JS actions; short-circuits to .openConfiguration when required option unresolved, else delegates to OpenClipJSHost

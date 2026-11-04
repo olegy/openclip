@@ -1709,34 +1709,6 @@
         }
       }
     },
-    "Allow Screen Recording for OpenClip in System Settings, then reopen OpenClip.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在系统设置中允许 OpenClip 进行屏幕录制，然后重新打开 OpenClip。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "請在系統設定中允許 OpenClip 進行螢幕錄製，然後重新開啟 OpenClip。"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Autorisez l’enregistrement de l’écran pour OpenClip dans Réglages Système, puis rouvrez OpenClip."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "システム設定で OpenClip の画面収録を許可してから、OpenClip を再度開いてください。"
-          }
-        }
-      }
-    },
     "Always": {
       "localizations": {
         "zh-Hans": {
@@ -3137,62 +3109,6 @@
         }
       }
     },
-    "Capture Text": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "屏幕文本捕获"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "螢幕文字擷取"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Capturer du texte"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "テキストをキャプチャ"
-          }
-        }
-      }
-    },
-    "Capture Text Shortcut": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "捕获文本快捷键"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "擷取文字快捷鍵"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Raccourci de capture de texte"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "テキストキャプチャのショートカット"
-          }
-        }
-      }
-    },
     "Center": {
       "localizations": {
         "zh-Hans": {
@@ -4397,62 +4313,6 @@
         }
       }
     },
-    "Copy captured text automatically": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自动复制捕获的文本"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自動複製擷取的文字"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copier automatiquement le texte capturé"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャプチャしたテキストを自動的にコピー"
-          }
-        }
-      }
-    },
-    "Copy recognized text to the clipboard. The action popup still opens.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "将识别的文本复制到剪贴板。操作弹窗仍会打开。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "將辨識的文字複製到剪貼簿。動作彈出視窗仍會開啟。"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copier le texte reconnu dans le presse-papiers. La fenêtre d’actions s’ouvre toujours."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "認識したテキストをクリップボードにコピーします。アクションポップアップも開きます。"
-          }
-        }
-      }
-    },
     "Copy response and close": {
       "localizations": {
         "zh-Hans": {
@@ -4649,34 +4509,6 @@
         }
       }
     },
-    "Could not capture text. Allow Screen Recording in System Settings, then try again.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法捕获文本。请在系统设置中允许屏幕录制，然后重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法擷取文字。請在系統設定中允許螢幕錄製，然後再試一次。"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de capturer le texte. Autorisez l’enregistrement de l’écran dans Réglages Système, puis réessayez."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "テキストをキャプチャできませんでした。システム設定で画面収録を許可してから、もう一度お試しください。"
-          }
-        }
-      }
-    },
     "Could not capture this area. Try again.": {
       "localizations": {
         "zh-Hans": {
@@ -4701,34 +4533,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "この領域をキャプチャできませんでした。もう一度お試しください。"
-          }
-        }
-      }
-    },
-    "Could not capture this screen. Check Screen Recording access in System Settings.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法捕获此屏幕。请在系统设置中检查屏幕录制权限。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法擷取此螢幕。請在系統設定中檢查螢幕錄製權限。"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de capturer cet écran. Vérifiez l’accès à l’enregistrement de l’écran dans Réglages Système."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "画面をキャプチャできませんでした。システム設定で画面収録へのアクセスを確認してください。"
           }
         }
       }
@@ -6269,34 +6073,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "画像をドラッグして書き出しまたは共有"
-          }
-        }
-      }
-    },
-    "Drag to capture text · Esc to cancel": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拖动以捕获文本 · 按 Esc 取消"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拖曳以擷取文字 · 按 Esc 取消"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Faites glisser pour capturer le texte · Échap pour annuler"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ドラッグしてテキストをキャプチャ · Esc キーでキャンセル"
           }
         }
       }
@@ -10781,34 +10557,6 @@
         }
       }
     },
-    "No text found": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未找到文本"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "找不到文字"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aucun texte trouvé"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "テキストが見つかりません"
-          }
-        }
-      }
-    },
     "No text selected or on clipboard": {
       "localizations": {
         "zh-Hans": {
@@ -14001,34 +13749,6 @@
         }
       }
     },
-    "Required by Capture Text.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“捕获文本”需要此权限。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「擷取文字」需要此權限。"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Requis par Capturer du texte."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「テキストをキャプチャ」に必要です。"
-          }
-        }
-      }
-    },
     "Required option not set.": {
       "localizations": {
         "zh-Hans": {
@@ -14981,34 +14701,6 @@
         }
       }
     },
-    "Screen Recording": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "屏幕录制"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "螢幕錄製"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enregistrement de l'écran"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "画面収録"
-          }
-        }
-      }
-    },
     "Search": {
       "localizations": {
         "zh-Hans": {
@@ -15569,62 +15261,6 @@
         }
       }
     },
-    "Select a larger area": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "请选择更大的区域"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "請選取較大的區域"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sélectionnez une zone plus grande"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "より広い範囲を選択してください"
-          }
-        }
-      }
-    },
-    "Select a screen region and copy its text.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "选择屏幕区域并拷贝其中的文本。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選取螢幕區域並拷貝其中的文字。"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sélectionnez une zone de l'écran et copiez son texte."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "画面の領域を選択して、そのテキストをコピーします。"
-          }
-        }
-      }
-    },
     "Select a screen region and extract text via OCR.": {
       "localizations": {
         "zh-Hans": {
@@ -15649,34 +15285,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "画面の領域を選択してOCRでテキストを抽出します。"
-          }
-        }
-      }
-    },
-    "Select a screen region and recognize its text.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "选择屏幕区域并识别其中的文本。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選取螢幕區域並辨識其中的文字。"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sélectionnez une zone de l’écran pour en reconnaître le texte."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "画面の範囲を選択してテキストを認識します。"
           }
         }
       }
@@ -17245,34 +16853,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "テキストスニペット"
-          }
-        }
-      }
-    },
-    "Text copied": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "文本已复制"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "文字已複製"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Texte copié"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "テキストをコピーしました"
           }
         }
       }

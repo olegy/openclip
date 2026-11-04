@@ -4,6 +4,12 @@ What changes in each OpenClip Lite release. `scripts/release.sh` publishes the s
 version being released as the GitHub release notes and as the notes in the update window, and
 refuses to release a version without one. Newest first; one `## <version>` heading per release.
 
+## 1.9.2-lite.4
+
+- Capture Text is removed, so OpenClip no longer asks for the Screen Recording permission;
+  Accessibility is the only one it needs. You can remove OpenClip from System Settings →
+  Privacy & Security → Screen & System Audio Recording.
+
 ## 1.9.2-lite.3
 
 - The palette shortcut works while another app's floating panel has keyboard focus (a Tinycast

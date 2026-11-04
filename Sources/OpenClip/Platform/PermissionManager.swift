@@ -2,7 +2,7 @@
 // OpenClip
 //
 // Checks and prompts for the macOS permissions OpenClip uses: Accessibility (reading the selection,
-// event monitoring) and Screen Recording (Capture Text).
+// event monitoring).
 import AppKit
 import ApplicationServices
 import Core
@@ -15,15 +15,11 @@ public final class PermissionManager: ObservableObject {
     public static let shared = PermissionManager()
 
     @Published public private(set) var isAccessibilityGranted: Bool = false
-    /// Screen Recording, needed by Capture Text. macOS reports a grant to the running process only
-    /// after a relaunch, and asks the user to quit and reopen the app itself.
-    @Published public private(set) var isScreenRecordingGranted: Bool = false
 
     private var pollingTask: Task<Void, Never>?
 
     private init() {
         self.isAccessibilityGranted = Self.queryAX()
-        self.isScreenRecordingGranted = CGPreflightScreenCaptureAccess()
     }
 
     // MARK: - Public API
@@ -52,10 +48,6 @@ public final class PermissionManager: ObservableObject {
             isAccessibilityGranted = current
             NotificationCenter.default.post(name: .openClipAccessibilityChanged, object: current)
         }
-        let screenRecording = CGPreflightScreenCaptureAccess()
-        if isScreenRecordingGranted != screenRecording {
-            isScreenRecordingGranted = screenRecording
-        }
     }
 
     /// Open System Settings → Accessibility and prompt macOS TCC to evaluate the running binary.
@@ -69,16 +61,6 @@ public final class PermissionManager: ObservableObject {
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    /// Asks macOS for Screen Recording (adds OpenClip to the list on first request) and opens
-    /// System Settings → Screen Recording.
-    public func requestScreenRecordingPermission() {
-        startMonitoring()
-        _ = CGRequestScreenCaptureAccess()
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)
         }
     }

@@ -8,7 +8,7 @@ OpenClip Lite has no published releases or Homebrew cask: you build it from sour
 
 - **Operating System**: macOS 14.0 (Sonoma) or later.
 - **Build tools**: Xcode 16+ and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
-- **Permissions**: Accessibility, to read the selected text when you press the palette shortcut. Screen Recording only if you use Capture Text.
+- **Permissions**: Accessibility, to read the selected text when you press the palette shortcut.
 
 The interface follows the macOS system language. English, Simplified Chinese, Traditional Chinese, French, and Japanese are bundled.
 

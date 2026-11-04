@@ -10,8 +10,6 @@ import Core
 
 extension KeyboardShortcuts.Name {
     public static let togglePopup = Self("togglePopup", initial: .init(.c, modifiers: [.command, .option]))
-    public static let captureText = Self("captureText")
-    static let cancelCaptureText = Self("cancelCaptureText", initial: .init(.escape))
 
     static func actionHotkey(_ actionID: String) -> Self {
         Self("actionHotkey.\(actionID)")
@@ -22,7 +20,6 @@ extension KeyboardShortcuts.Name {
 public final class HotkeyManager {
     public static let shared = HotkeyManager()
     private weak var popupController: PopupWindowController?
-    private weak var captureTextController: CaptureTextController?
     internal var retriever: SelectionRetrievalCoordinator?
     /// The PID that must still own keyboard focus for a read to count — the focus owner, which
     /// differs from the frontmost app while another app's non-activating panel is key
@@ -47,12 +44,8 @@ public final class HotkeyManager {
         return AppIdentity(frontmost).ruleIdentifier != nil
     }
 
-    func setup(
-        popupController: PopupWindowController,
-        captureTextController: CaptureTextController? = nil
-    ) {
+    func setup(popupController: PopupWindowController) {
         self.popupController = popupController
-        self.captureTextController = captureTextController
         // ⌘1…⌘9 pick a palette row. Parked until a palette opens — see PaletteRowShortcuts for why
         // they must be global hot keys rather than key equivalents on the panel.
         PaletteRowShortcuts.install { [weak popupController] row in
@@ -64,16 +57,6 @@ public final class HotkeyManager {
                 self?.handleTogglePopup()
             }
         }
-        KeyboardShortcuts.onKeyDown(for: .captureText) { [weak self] in
-            MainActor.assumeIsolated { self?.captureTextController?.toggleCapture() }
-        }
-        KeyboardShortcuts.onKeyDown(for: .cancelCaptureText) { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, self.captureTextController?.isCapturing == true else { return }
-                self.captureTextController?.cancel()
-            }
-        }
-        KeyboardShortcuts.disable(.cancelCaptureText)
 
         ActionCoordinator.shared.$actions
             .sink { [weak self] actions in
@@ -82,9 +65,6 @@ public final class HotkeyManager {
             .store(in: &cancellables)
         registerActionHotkeys(ActionCoordinator.shared.actions)
     }
-
-    func enableCaptureCancellation() { KeyboardShortcuts.enable(.cancelCaptureText) }
-    func disableCaptureCancellation() { KeyboardShortcuts.disable(.cancelCaptureText) }
 
     public func handleTogglePopup(frontmostApp: NSRunningApplication? = FocusedApplication.current()) {
         // A second press cancels a selection read that has not presented yet.
